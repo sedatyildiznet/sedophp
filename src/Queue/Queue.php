@@ -34,9 +34,11 @@ final class Queue
         ]);
     }
 
-    public static function work(int $limit = 10): int
+    public static function work(int $limit = 10, int $staleAfterSeconds = 3600): int
     {
         $limit = max(1, $limit);
+        self::releaseStale($staleAfterSeconds);
+
         $rows = Database::table('jobs')
             ->whereNull('reserved_at')
             ->whereNull('failed_at')
@@ -53,6 +55,18 @@ final class Queue
         }
 
         return $processed;
+    }
+
+    public static function releaseStale(int $afterSeconds = 3600): int
+    {
+        $afterSeconds = max(1, $afterSeconds);
+        $cutoff = gmdate('Y-m-d H:i:s', time() - $afterSeconds);
+
+        return Database::table('jobs')
+            ->whereNull('failed_at')
+            ->whereNotNull('reserved_at')
+            ->where('reserved_at', '<=', $cutoff)
+            ->update(['reserved_at' => null]);
     }
 
     /** @param array<string,mixed> $row */
