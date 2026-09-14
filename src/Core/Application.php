@@ -13,9 +13,11 @@ use SedoPHP\Mail\Mailer;
 use SedoPHP\Middleware\ApiTokenMiddleware;
 use SedoPHP\Middleware\AuthMiddleware;
 use SedoPHP\Middleware\CsrfMiddleware;
+use SedoPHP\Middleware\CorsMiddleware;
 use SedoPHP\Middleware\GuestMiddleware;
 use SedoPHP\Middleware\JwtMiddleware;
 use SedoPHP\Middleware\RateLimitMiddleware;
+use SedoPHP\Middleware\SecurityHeadersMiddleware;
 use SedoPHP\Queue\Queue;
 use SedoPHP\Routing\Router;
 use SedoPHP\Security\Jwt;
@@ -56,13 +58,21 @@ final class Application
         $this->router->alias('auth', AuthMiddleware::class);
         $this->router->alias('guest', GuestMiddleware::class);
         $this->router->alias('csrf', CsrfMiddleware::class);
+        $this->router->alias('cors', CorsMiddleware::class);
         $this->router->alias('throttle', RateLimitMiddleware::class);
         $this->router->alias('token', ApiTokenMiddleware::class);
         $this->router->alias('jwt', JwtMiddleware::class);
+        $this->router->alias('security', SecurityHeadersMiddleware::class);
 
         foreach ((array) Config::get('middleware.aliases', []) as $name => $middleware) {
             if (is_string($name) && is_string($middleware)) {
                 $this->router->alias($name, $middleware);
+            }
+        }
+
+        foreach ((array) Config::get('middleware.global', ['cors', 'security']) as $middleware) {
+            if (is_string($middleware) && $middleware !== '') {
+                $this->router->middleware($middleware);
             }
         }
 
@@ -80,7 +90,7 @@ final class Application
     public function run(): void
     {
         $this->request = Request::capture((string) Config::get('app.base_path', ''));
-        HttpSecurity::apply($this->router->dispatch($this->request), $this->request)->send();
+        $this->router->dispatch($this->request)->send();
     }
 
     public function router(): Router
