@@ -131,7 +131,7 @@ $test('nested validation supports dot paths and wildcard arrays', static functio
                 'name' => '',
                 'password' => 'secret',
                 'password_confirmation' => 'secret',
-                'mirror' => '',
+                'mirror' => 'Different',
             ],
             [
                 'name' => 'Second',
@@ -147,12 +147,12 @@ $test('nested validation supports dot paths and wildcard arrays', static functio
         'items.*.mirror' => 'same:items.*.name',
     ]);
 
-    $expect(isset($errors['user.email']));
-    $expect(isset($errors['items.0.name']));
-    $expect(!isset($errors['items.0.password']));
-    $expect(isset($errors['items.1.password']));
-    $expect(isset($errors['items.0.mirror']));
-    $expect(!isset($errors['items.1.mirror']));
+    $expect(isset($errors['user.email']), 'Nested email error was not produced.');
+    $expect(isset($errors['items.0.name']), 'Wildcard required error was not produced.');
+    $expect(!isset($errors['items.0.password']), 'Matching nested confirmation was rejected.');
+    $expect(isset($errors['items.1.password']), 'Mismatched nested confirmation was accepted.');
+    $expect(isset($errors['items.0.mirror']), 'Wildcard same rule failed to detect a mismatch.');
+    $expect(!isset($errors['items.1.mirror']), 'Wildcard same rule rejected matching values.');
 });
 
 $test('schema builder creates and alters portable tables', static function () use ($expect): void {
