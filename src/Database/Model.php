@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace SedoPHP\Database;
 
 use ArrayAccess;
+use DateTimeImmutable;
+use DateTimeInterface;
+use JsonException;
 use JsonSerializable;
 use RuntimeException;
 use SedoPHP\Database\Relations\BelongsTo;
@@ -15,17 +18,27 @@ abstract class Model implements ArrayAccess, JsonSerializable
 {
     protected string $table = '';
     protected string $primaryKey = 'id';
+
     /** @var list<string> */
     protected array $fillable = [];
+
     /** @var list<string> */
     protected array $hidden = ['password'];
+
+    /** @var array<string, string> */
+    protected array $casts = [];
+
+    protected bool $timestamps = false;
+    protected string $createdAt = 'created_at';
+    protected string $updatedAt = 'updated_at';
+
     /** @var array<string, mixed> */
     private array $attributes = [];
 
     /** @param array<string, mixed> $attributes */
     public function __construct(array $attributes = [])
     {
-        $this->attributes = $attributes;
+        $this->attributes = $this->castAttributes($attributes);
     }
 
     public static function query(): QueryBuilder
@@ -62,7 +75,9 @@ abstract class Model implements ArrayAccess, JsonSerializable
     {
         $model = new static();
         $data = $model->filterFillable($data);
-        $id = Database::table($model->tableName())->insert($data);
+        $data = $model->applyCreateTimestamps($data);
+
+        $id = Database::table($model->tableName())->insert($model->serializeForDatabase($data));
 
         if ($id > 0 && !array_key_exists($model->primaryKey, $data)) {
             $data[$model->primaryKey] = $id;
@@ -80,12 +95,17 @@ abstract class Model implements ArrayAccess, JsonSerializable
         }
 
         $data = $this->filterFillable($data);
+        $data = $this->applyUpdateTimestamp($data);
+
         if ($data === []) {
             return false;
         }
 
-        Database::table($this->tableName())->where($this->primaryKey, $id)->update($data);
-        $this->attributes = array_merge($this->attributes, $data);
+        Database::table($this->tableName())
+            ->where($this->primaryKey, $id)
+            ->update($this->serializeForDatabase($data));
+
+        $this->attributes = array_merge($this->attributes, $this->castAttributes($data));
         return true;
     }
 
@@ -130,7 +150,13 @@ abstract class Model implements ArrayAccess, JsonSerializable
     /** @return array<string, mixed> */
     public function toArray(): array
     {
-        return array_diff_key($this->attributes, array_flip($this->hidden));
+        $visible = array_diff_key($this->attributes, array_flip($this->hidden));
+
+        foreach ($visible as $key => $value) {
+            $visible[$key] = $this->serializeForArray($value);
+        }
+
+        return $visible;
     }
 
     public function jsonSerialize(): array
@@ -153,7 +179,8 @@ abstract class Model implements ArrayAccess, JsonSerializable
         if (!is_string($offset)) {
             throw new RuntimeException('Model keys must be strings.');
         }
-        $this->attributes[$offset] = $value;
+
+        $this->attributes[$offset] = $this->castValue($offset, $value);
     }
 
     public function offsetUnset(mixed $offset): void
@@ -184,6 +211,121 @@ abstract class Model implements ArrayAccess, JsonSerializable
         return array_intersect_key($data, array_flip($this->fillable));
     }
 
+    /** @param array<string, mixed> $data @return array<string, mixed> */
+    private function applyCreateTimestamps(array $data): array
+    {
+        if (!$this->timestamps) {
+            return $data;
+        }
+
+        $now = gmdate('Y-m-d H:i:s');
+        $data[$this->createdAt] ??= $now;
+        $data[$this->updatedAt] ??= $now;
+        return $data;
+    }
+
+    /** @param array<string, mixed> $data @return array<string, mixed> */
+    private function applyUpdateTimestamp(array $data): array
+    {
+        if ($this->timestamps) {
+            $data[$this->updatedAt] = gmdate('Y-m-d H:i:s');
+        }
+
+        return $data;
+    }
+
+    /** @param array<string, mixed> $data @return array<string, mixed> */
+    private function castAttributes(array $data): array
+    {
+        foreach ($data as $key => $value) {
+            $data[$key] = $this->castValue((string) $key, $value);
+        }
+
+        return $data;
+    }
+
+    private function castValue(string $key, mixed $value): mixed
+    {
+        if ($value === null || !isset($this->casts[$key])) {
+            return $value;
+        }
+
+        $type = strtolower($this->casts[$key]);
+
+        return match ($type) {
+            'int', 'integer' => (int) $value,
+            'float', 'double', 'real' => (float) $value,
+            'bool', 'boolean' => is_string($value)
+                ? filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? (bool) $value
+                : (bool) $value,
+            'string' => (string) $value,
+            'array', 'json' => $this->castJson($value),
+            'datetime' => $value instanceof DateTimeInterface ? DateTimeImmutable::createFromInterface($value) : new DateTimeImmutable((string) $value),
+            default => throw new RuntimeException("Unsupported model cast type: {$type}"),
+        };
+    }
+
+    private function castJson(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (!is_string($value) || $value === '') {
+            return [];
+        }
+
+        try {
+            $decoded = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            throw new RuntimeException('Invalid JSON model attribute.', 0, $exception);
+        }
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /** @param array<string, mixed> $data @return array<string, mixed> */
+    private function serializeForDatabase(array $data): array
+    {
+        foreach ($data as $key => $value) {
+            $type = strtolower((string) ($this->casts[(string) $key] ?? ''));
+
+            if ($value === null) {
+                continue;
+            }
+
+            if (in_array($type, ['array', 'json'], true)) {
+                $data[$key] = json_encode($this->castJson($value), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            } elseif (in_array($type, ['bool', 'boolean'], true)) {
+                $data[$key] = $this->castValue((string) $key, $value) ? 1 : 0;
+            } elseif ($type === 'datetime') {
+                $date = $this->castValue((string) $key, $value);
+                $data[$key] = $date instanceof DateTimeInterface ? $date->format('Y-m-d H:i:s') : $value;
+            } else {
+                $data[$key] = $this->castValue((string) $key, $value);
+            }
+        }
+
+        return $data;
+    }
+
+    private function serializeForArray(mixed $value): mixed
+    {
+        if ($value instanceof DateTimeInterface) {
+            return $value->format(DATE_ATOM);
+        }
+
+        if ($value instanceof self) {
+            return $value->toArray();
+        }
+
+        if (is_array($value)) {
+            return array_map(fn (mixed $item): mixed => $this->serializeForArray($item), $value);
+        }
+
+        return $value;
+    }
+
     /** @param list<static> $models */
     private static function eagerLoad(array $models, string $name): void
     {
@@ -200,15 +342,19 @@ abstract class Model implements ArrayAccess, JsonSerializable
                 array_map(static fn (HasMany $relation): mixed => $relation->localValue(), $relations),
                 static fn (mixed $value): bool => $value !== null
             ), SORT_REGULAR));
+
             $class = $first->relatedClass();
             $rows = $values === [] ? [] : $class::query()->whereIn($first->foreignKey(), $values)->get();
             $grouped = [];
+
             foreach ($rows as $row) {
                 $grouped[(string) ($row[$first->foreignKey()] ?? '')][] = new $class($row);
             }
+
             foreach ($models as $index => $model) {
                 $model->setRelation($name, $grouped[(string) $relations[$index]->localValue()] ?? []);
             }
+
             if ($nested !== null && $rows !== []) {
                 $children = [];
                 foreach ($models as $model) {
@@ -224,15 +370,19 @@ abstract class Model implements ArrayAccess, JsonSerializable
                 array_map(static fn (BelongsTo $relation): mixed => $relation->foreignValue(), $relations),
                 static fn (mixed $value): bool => $value !== null
             ), SORT_REGULAR));
+
             $class = $first->relatedClass();
             $rows = $values === [] ? [] : $class::query()->whereIn($first->ownerKey(), $values)->get();
             $indexed = [];
+
             foreach ($rows as $row) {
                 $indexed[(string) ($row[$first->ownerKey()] ?? '')] = new $class($row);
             }
+
             foreach ($models as $index => $model) {
                 $model->setRelation($name, $indexed[(string) $relations[$index]->foreignValue()] ?? null);
             }
+
             if ($nested !== null && $indexed !== []) {
                 $class::eagerLoad(array_values($indexed), $nested);
             }
