@@ -49,17 +49,26 @@ $writeMigration = static function (?string $name) use ($app): void {
     $slug = trim($slug, '_');
     $file = $app->path('database/migrations/' . date('Ymd_His') . '_' . $slug . '.php');
 
-    $content = <<<'PHP'
+    $table = str_starts_with($slug, 'create_') ? substr($slug, 7) : $slug;
+    $table = $table !== '' ? $table : 'table_name';
+
+    $content = <<<PHP
 <?php
 
 declare(strict_types=1);
 
+use SedoPHP\\Database\\Blueprint;
+use SedoPHP\\Database\\Schema;
+
 return [
-    'up' => static function (PDO $db): void {
-        // Write plain SQL here.
+    'up' => static function (): void {
+        Schema::create('{$table}', static function (Blueprint \$table): void {
+            \$table->id();
+            \$table->timestamps();
+        });
     },
-    'down' => static function (PDO $db): void {
-        // Reverse the migration here.
+    'down' => static function (): void {
+        Schema::dropIfExists('{$table}');
     },
 ];
 
