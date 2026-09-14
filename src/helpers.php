@@ -90,11 +90,27 @@ if (!function_exists('back')) {
     function back(int $status = 302): Response
     {
         $referer = (string) ($_SERVER['HTTP_REFERER'] ?? '/');
-        $host = (string) ($_SERVER['HTTP_HOST'] ?? '');
-        $refererHost = (string) (parse_url($referer, PHP_URL_HOST) ?? '');
+        $hostHeader = (string) ($_SERVER['HTTP_HOST'] ?? '');
 
-        if ($refererHost !== '' && $host !== '' && !hash_equals(strtolower($host), strtolower($refererHost))) {
-            $referer = '/';
+        if ($referer !== '/' && $hostHeader !== '') {
+            $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+            $currentScheme = $https ? 'https' : 'http';
+            $current = parse_url($currentScheme . '://' . $hostHeader);
+            $target = parse_url($referer);
+
+            if (is_array($current) && is_array($target) && isset($target['host'], $current['host'])) {
+                $targetScheme = strtolower((string) ($target['scheme'] ?? $currentScheme));
+                $targetPort = (int) ($target['port'] ?? ($targetScheme === 'https' ? 443 : 80));
+                $currentPort = (int) ($current['port'] ?? ($currentScheme === 'https' ? 443 : 80));
+
+                $sameOrigin = hash_equals(strtolower((string) $current['host']), strtolower((string) $target['host']))
+                    && hash_equals($currentScheme, $targetScheme)
+                    && $currentPort === $targetPort;
+
+                if (!$sameOrigin) {
+                    $referer = '/';
+                }
+            }
         }
 
         return redirect($referer, $status);

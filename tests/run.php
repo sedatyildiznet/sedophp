@@ -18,6 +18,8 @@ use SedoPHP\View\View;
 
 require dirname(__DIR__) . '/bootstrap/autoload.php';
 
+ob_start();
+
 $passed = 0;
 $failed = 0;
 
@@ -125,6 +127,53 @@ $test('Validation catches common invalid input', static function () use ($expect
     ]);
 
     $expect(isset($errors['email'], $errors['password'], $errors['age'], $errors['tags']));
+});
+
+$test('Validation required rejects empty arrays, whitespace and invalid uploads', static function () use ($expect): void {
+    $invalidUpload = new UploadedFile('', 'missing.txt', 'text/plain', 0, UPLOAD_ERR_NO_FILE);
+
+    $errors = Validator::validate([
+        'array' => [],
+        'text' => '   ',
+        'upload' => $invalidUpload,
+    ], [
+        'array' => 'required',
+        'text' => 'required',
+        'upload' => 'required|file',
+    ]);
+
+    $expect(isset($errors['array'], $errors['text'], $errors['upload']));
+});
+
+$test('back() accepts same origin with port and rejects external origins', static function () use ($expect): void {
+    $oldHost = $_SERVER['HTTP_HOST'] ?? null;
+    $oldReferer = $_SERVER['HTTP_REFERER'] ?? null;
+    $oldHttps = $_SERVER['HTTPS'] ?? null;
+
+    $_SERVER['HTTP_HOST'] = 'localhost:8000';
+    $_SERVER['HTTP_REFERER'] = 'http://localhost:8000/form';
+    unset($_SERVER['HTTPS']);
+
+    $same = back();
+    $expect(($same->headers()['Location'] ?? '') === 'http://localhost:8000/form');
+
+    $_SERVER['HTTP_REFERER'] = 'http://evil.example/form';
+    $external = back();
+    $expect(($external->headers()['Location'] ?? '') === '/');
+
+    $oldHost === null ? unset($_SERVER['HTTP_HOST']) : $_SERVER['HTTP_HOST'] = $oldHost;
+    $oldReferer === null ? unset($_SERVER['HTTP_REFERER']) : $_SERVER['HTTP_REFERER'] = $oldReferer;
+    $oldHttps === null ? unset($_SERVER['HTTPS']) : $_SERVER['HTTPS'] = $oldHttps;
+});
+
+$test('Relative SQLite paths resolve from the project root', static function () use ($expect): void {
+    putenv('DB_SQLITE=storage/custom.sqlite');
+    $config = require dirname(__DIR__) . '/config/database.php';
+    putenv('DB_SQLITE');
+
+    $expected = str_replace('\\\\', '/', dirname(__DIR__) . '/storage/custom.sqlite');
+    $actual = str_replace('\\\\', '/', (string) $config['sqlite']);
+    $expect($actual === $expected, "SQLite path was {$actual}");
 });
 
 $test('Session set and pull', static function () use ($expect): void {
@@ -339,4 +388,5 @@ if ($hasDatabase) {
 }
 
 echo "\n{$passed} passed, {$failed} failed.\n";
+ob_end_flush();
 exit($failed === 0 ? 0 : 1);

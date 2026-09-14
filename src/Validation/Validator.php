@@ -19,7 +19,7 @@ final class Validator
             $value = $data[$field] ?? null;
             $nullable = in_array('nullable', $fieldRules, true);
 
-            if ($nullable && ($value === null || $value === '')) {
+            if ($nullable && self::isEmpty($value)) {
                 continue;
             }
 
@@ -49,7 +49,7 @@ final class Validator
         array $data,
         array $fieldRules,
     ): ?string {
-        $empty = $value === null || $value === '';
+        $empty = self::isEmpty($value);
         $numericMode = in_array('numeric', $fieldRules, true) || in_array('integer', $fieldRules, true);
 
         return match ($rule) {
@@ -76,6 +76,23 @@ final class Validator
             'mimes' => !$empty && !self::validMimes($value, $parameter) ? "{$field} has an invalid file extension." : null,
             default => "Unknown validation rule: {$rule}.",
         };
+    }
+
+    private static function isEmpty(mixed $value): bool
+    {
+        if ($value instanceof UploadedFile) {
+            return !$value->isValid();
+        }
+
+        if (is_array($value)) {
+            return $value === [];
+        }
+
+        if (is_string($value)) {
+            return trim($value) === '';
+        }
+
+        return $value === null;
     }
 
     private static function measure(mixed $value, bool $numericMode): float
