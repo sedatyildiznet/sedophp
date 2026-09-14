@@ -4,8 +4,9 @@
 
 - PHP 8.3 or newer
 - PDO
-- A PDO driver for your database (`pdo_mysql` for MySQL/MariaDB)
-- Apache with `mod_rewrite` for the included `.htaccess` setup, or an equivalent Nginx rule
+- `pdo_mysql` for MySQL/MariaDB
+- `fileinfo` when using MIME-aware uploads
+- Apache rewrite support for the included `.htaccess` deployment
 
 Composer is recommended but not required at runtime.
 
@@ -34,9 +35,17 @@ DB_PASS=change-me
 
 Never commit `.env`.
 
-## Application flow
+## Check the environment
 
-Every web request enters `public/index.php`:
+When a terminal is available:
+
+```bash
+php sedo doctor
+```
+
+It checks PHP, PDO, the configured database driver, writable storage, the `.env` file, database connectivity and Apache rewrite availability when detectable.
+
+## Application flow
 
 ```text
 Request
@@ -46,8 +55,6 @@ Request
   -> Controller / closure
   -> Response
 ```
-
-There are no service providers or application containers to understand before writing a page.
 
 ## Add a page
 
@@ -65,72 +72,37 @@ get('/about', function () {
 <h1><?= e($title) ?></h1>
 ```
 
-`e()` should be used for untrusted values written into HTML.
-
 ## Add a controller
 
 ```bash
 php sedo make:controller ProductController
 ```
 
-Or create `app/Controllers/ProductController.php` yourself:
-
-```php
-<?php
-
-declare(strict_types=1);
-
-namespace App\Controllers;
-
-final class ProductController
-{
-    public function show(string $id)
-    {
-        $product = db('products')->where('id', $id)->first();
-        return $product ? view('products.show', compact('product')) : response('Not found', 404);
-    }
-}
-```
-
-Then:
-
-```php
-get('/products/{id}', 'ProductController@show');
-```
-
-Route parameters are passed to the action in their path order. Request data is intentionally accessed with `input()` rather than automatic dependency injection.
+Or create it by hand. Route parameters are passed in path order; request data is read explicitly with `input()`.
 
 ## Database and migrations
 
-The default project includes a users migration for the built-in authentication helper.
-
 ```bash
+php sedo make:migration create_posts
 php sedo migrate
 ```
 
-A migration is plain PHP:
+Migrations are plain PHP callbacks receiving PDO. On MySQL/MariaDB, schema migrations are intentionally not wrapped in misleading DDL transactions because those engines may implicitly commit schema statements.
 
-```php
-return [
-    'up' => function (PDO $db): void {
-        $db->exec('CREATE TABLE posts (...)');
-    },
-    'down' => function (PDO $db): void {
-        $db->exec('DROP TABLE IF EXISTS posts');
-    },
-];
-```
+## Models
 
-This is intentional: SQL remains SQL.
+Generated models contain an empty `$fillable` array. Add the fields that may be mass-assigned before using `Model::create()` or model `update()`.
+
+For unrestricted explicit writes, use `db()`.
 
 ## Production
-
-Set:
 
 ```env
 APP_ENV=production
 APP_DEBUG=false
 SESSION_SECURE=true
+SESSION_HTTP_ONLY=true
+SESSION_SAME_SITE=Lax
 ```
 
-Use HTTPS, point the document root to `public/` when your hosting panel allows it, and make `storage/` writable by PHP.
+Use HTTPS, prefer a document root pointed to `public/`, and make `storage/` writable by PHP.

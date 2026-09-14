@@ -51,9 +51,11 @@ abstract class Model implements ArrayAccess, JsonSerializable
         $model = new static();
         $data = $model->filterFillable($data);
         $id = Database::table($model->tableName())->insert($data);
+
         if ($id > 0 && !array_key_exists($model->primaryKey, $data)) {
             $data[$model->primaryKey] = $id;
         }
+
         return new static($data);
     }
 
@@ -64,10 +66,12 @@ abstract class Model implements ArrayAccess, JsonSerializable
         if ($id === null) {
             throw new RuntimeException('Cannot update a model without a primary key.');
         }
+
         $data = $this->filterFillable($data);
         if ($data === []) {
             return false;
         }
+
         Database::table($this->tableName())->where($this->primaryKey, $id)->update($data);
         $this->attributes = array_merge($this->attributes, $data);
         return true;
@@ -79,6 +83,7 @@ abstract class Model implements ArrayAccess, JsonSerializable
         if ($id === null) {
             throw new RuntimeException('Cannot delete a model without a primary key.');
         }
+
         return Database::table($this->tableName())->where($this->primaryKey, $id)->delete() > 0;
     }
 
@@ -128,6 +133,7 @@ abstract class Model implements ArrayAccess, JsonSerializable
         if ($this->table === '') {
             throw new RuntimeException(static::class . ' must define a table name.');
         }
+
         return $this->table;
     }
 
@@ -135,8 +141,11 @@ abstract class Model implements ArrayAccess, JsonSerializable
     private function filterFillable(array $data): array
     {
         if ($this->fillable === []) {
-            return $data;
+            throw new RuntimeException(
+                static::class . ' has no fillable fields. Define $fillable or use db() for explicit database writes.'
+            );
         }
+
         return array_intersect_key($data, array_flip($this->fillable));
     }
 }

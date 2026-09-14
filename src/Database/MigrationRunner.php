@@ -27,18 +27,16 @@ final class MigrationRunner
             if (isset($done[$name])) {
                 continue;
             }
-            $migration = require $file;
-            if (!is_array($migration) || !isset($migration['up']) || !is_callable($migration['up'])) {
-                throw new RuntimeException("Invalid migration: {$name}");
-            }
 
-            Database::transaction(function (PDO $db) use ($migration, $name, $batch): void {
+            $migration = $this->load($file, $name);
+            $this->run($pdo, static function (PDO $db) use ($migration, $name, $batch): void {
                 $migration['up']($db);
                 $statement = $db->prepare('INSERT INTO sedo_migrations (migration, batch) VALUES (?, ?)');
                 $statement->execute([$name, $batch]);
             });
             $count++;
         }
+
         return $count;
     }
 
@@ -47,6 +45,7 @@ final class MigrationRunner
         $pdo = Database::pdo();
         $this->ensureTable($pdo);
         $batch = (int) $pdo->query('SELECT COALESCE(MAX(batch), 0) FROM sedo_migrations')->fetchColumn();
+
         if ($batch === 0) {
             return 0;
         }
@@ -61,19 +60,46 @@ final class MigrationRunner
             if (!is_file($file)) {
                 throw new RuntimeException("Migration file missing: {$name}");
             }
-            $migration = require $file;
-            if (!is_array($migration) || !isset($migration['down']) || !is_callable($migration['down'])) {
-                throw new RuntimeException("Migration cannot be rolled back: {$name}");
-            }
 
-            Database::transaction(function (PDO $db) use ($migration, $name): void {
+            $migration = $this->load($file, (string) $name);
+            $this->run($pdo, static function (PDO $db) use ($migration, $name): void {
                 $migration['down']($db);
                 $delete = $db->prepare('DELETE FROM sedo_migrations WHERE migration = ?');
                 $delete->execute([$name]);
             });
             $count++;
         }
+
         return $count;
+    }
+
+    /** @return array{up:callable,down:callable} */
+    private function load(string $file, string $name): array
+    {
+        $migration = require $file;
+
+        if (
+            !is_array($migration)
+            || !isset($migration['up'], $migration['down'])
+            || !is_callable($migration['up'])
+            || !is_callable($migration['down'])
+        ) {
+            throw new RuntimeException("Invalid migration: {$name}");
+        }
+
+        return $migration;
+    }
+
+    private function run(PDO $pdo, callable $callback): void
+    {
+        if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+            $callback($pdo);
+            return;
+        }
+
+        Database::transaction(static function (PDO $db) use ($callback): void {
+            $callback($db);
+        });
     }
 
     /** @return list<string> */
@@ -90,6 +116,7 @@ final class MigrationRunner
         $sql = $driver === 'mysql'
             ? 'CREATE TABLE IF NOT EXISTS sedo_migrations (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, migration VARCHAR(255) NOT NULL UNIQUE, batch INT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
             : 'CREATE TABLE IF NOT EXISTS sedo_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, migration TEXT NOT NULL UNIQUE, batch INTEGER NOT NULL)';
+
         $pdo->exec($sql);
     }
 }

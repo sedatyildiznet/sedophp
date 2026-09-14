@@ -14,25 +14,41 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        php: ['8.3', '8.4']
+        php: ['8.3', '8.4', '8.5']
     steps:
       - uses: actions/checkout@v4
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: pdo_sqlite
+          extensions: pdo_sqlite,fileinfo
           coverage: none
-      - name: Check SQLite test driver
-        run: >-
-          php -r 'exit(in_array("sqlite", PDO::getAvailableDrivers(), true) ? 0 : 1);'
+      - name: Composer validate
+        run: composer validate --strict
       - name: Lint
-        run: find src app bootstrap config routes public database tests -name '*.php' -print0 | xargs -0 -n1 php -l
+        run: php tools/lint.php
       - name: Test
         run: php tests/run.php
+      - name: CLI and HTTP smoke
+        if: matrix.php == '8.3'
+        run: |
+          printf '%s\n'             'APP_ENV=production'             'APP_DEBUG=false'             'APP_URL=http://127.0.0.1:8080'             'DB_DRIVER=sqlite'             "DB_SQLITE=${{ github.workspace }}/storage/test.sqlite"             > .env
+          touch storage/test.sqlite
+          php sedo migrate
+          php sedo doctor
+          php sedo route:list
+          php sedo serve 127.0.0.1:8080 > /tmp/sedophp-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 1
+          test "$(curl -s -o /tmp/home -w '%{http_code}' http://127.0.0.1:8080/)" = "200"
+          test "$(curl -s -o /tmp/health -w '%{http_code}' http://127.0.0.1:8080/health)" = "200"
+          test "$(curl -s -o /tmp/method -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8080/health)" = "405"
+          test "$(curl -s -o /tmp/json -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{bad' http://127.0.0.1:8080/health)" = "400"
+          kill $SERVER_PID
 
   mariadb:
-    name: MariaDB / PHP 8.3
+    name: MariaDB 11 / PHP 8.3
     runs-on: ubuntu-latest
     services:
       mariadb:
@@ -60,12 +76,13 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: pdo_mysql
+          extensions: pdo_mysql,fileinfo
           coverage: none
-      - name: Check MySQL test driver
-        run: >-
-          php -r 'exit(in_array("mysql", PDO::getAvailableDrivers(), true) ? 0 : 1);'
       - name: Lint
-        run: find src app bootstrap config routes public database tests -name '*.php' -print0 | xargs -0 -n1 php -l
-      - name: Test
+        run: php tools/lint.php
+      - name: Test including migrations
         run: php tests/run.php
+      - name: Doctor against MariaDB
+        run: |
+          printf '%s\n'             'APP_ENV=production'             'APP_DEBUG=false'             'DB_DRIVER=mysql'             'DB_HOST=127.0.0.1'             'DB_PORT=3306'             'DB_NAME=sedophp'             'DB_USER=root'             'DB_PASS=root'             > .env
+          php sedo doctor

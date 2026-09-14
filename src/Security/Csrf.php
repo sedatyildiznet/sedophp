@@ -15,9 +15,15 @@ final class Csrf
     {
         $token = Session::get(self::KEY);
         if (!is_string($token) || strlen($token) < 32) {
-            $token = bin2hex(random_bytes(32));
-            Session::set(self::KEY, $token);
+            $token = self::regenerate();
         }
+        return $token;
+    }
+
+    public static function regenerate(): string
+    {
+        $token = bin2hex(random_bytes(32));
+        Session::set(self::KEY, $token);
         return $token;
     }
 

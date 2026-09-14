@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace SedoPHP\Http;
 
-use JsonException;
-
 final class Response
 {
     /** @param array<string, string> $headers */
@@ -16,14 +14,10 @@ final class Response
     ) {
     }
 
+    /** @param array<string, mixed> $data */
     public static function json(array $data, int $status = 200): self
     {
-        try {
-            $body = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        } catch (JsonException $exception) {
-            throw $exception;
-        }
-
+        $body = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         return new self($body, $status, ['Content-Type' => 'application/json; charset=UTF-8']);
     }
 
@@ -36,6 +30,13 @@ final class Response
     {
         $clone = clone $this;
         $clone->headers[$name] = $value;
+        return $clone;
+    }
+
+    public function withoutBody(): self
+    {
+        $clone = clone $this;
+        $clone->body = '';
         return $clone;
     }
 

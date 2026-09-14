@@ -24,7 +24,16 @@ final class Router
 
     public function add(string $method, string $pattern, mixed $action): Route
     {
-        $route = new Route(strtoupper($method), self::normalize($pattern), $action);
+        $method = strtoupper($method);
+        $pattern = self::normalize($pattern);
+
+        foreach ($this->routes as $existing) {
+            if ($existing->method === $method && $existing->pattern === $pattern) {
+                throw new RuntimeException("Duplicate route: {$method} {$pattern}");
+            }
+        }
+
+        $route = new Route($method, $pattern, $action);
         $this->routes[] = $route;
         return $route;
     }
@@ -34,9 +43,24 @@ final class Router
         $this->aliases[$name] = $middleware;
     }
 
+    /** @return list<Route> */
+    public function routes(): array
+    {
+        return $this->routes;
+    }
+
     public function dispatch(Request $request): Response
     {
-        $method = $request->method() === 'HEAD' ? 'GET' : $request->method();
+        $originalMethod = $request->method();
+
+        if ($originalMethod === 'OPTIONS') {
+            $allowed = $this->allowedMethods($request->path());
+            if ($allowed !== []) {
+                return new Response('', 204, ['Allow' => implode(', ', $allowed)]);
+            }
+        }
+
+        $method = $originalMethod === 'HEAD' ? 'GET' : $originalMethod;
 
         foreach ($this->routes as $route) {
             if ($route->method !== $method) {
@@ -56,12 +80,37 @@ final class Router
                 $destination = fn (): Response => $this->runMiddleware($name, $request, $next);
             }
 
-            return $destination();
+            $response = $destination();
+            return $originalMethod === 'HEAD' ? $response->withoutBody() : $response;
+        }
+
+        $allowed = $this->allowedMethods($request->path());
+        if ($allowed !== []) {
+            $allow = implode(', ', $allowed);
+            return $request->expectsJson()
+                ? Response::json(['error' => 'Method not allowed'], 405)->withHeader('Allow', $allow)
+                : (new Response('<h1>405</h1><p>Method not allowed.</p>', 405, ['Content-Type' => 'text/html; charset=UTF-8']))
+                    ->withHeader('Allow', $allow);
         }
 
         return $request->expectsJson()
             ? Response::json(['error' => 'Not found'], 404)
             : new Response('<h1>404</h1><p>Page not found.</p>', 404, ['Content-Type' => 'text/html; charset=UTF-8']);
+    }
+
+    public static function describeAction(mixed $action): string
+    {
+        if (is_string($action)) {
+            return $action;
+        }
+        if (is_array($action) && count($action) === 2) {
+            $class = is_object($action[0]) ? $action[0]::class : (string) $action[0];
+            return $class . '@' . (string) $action[1];
+        }
+        if ($action instanceof \Closure) {
+            return 'Closure';
+        }
+        return is_object($action) ? $action::class : gettype($action);
     }
 
     /** @param array<string, string> $params */
@@ -89,11 +138,7 @@ final class Router
             return $instance->{$method}(...$arguments);
         }
 
-        if (is_array($action) && count($action) === 2 && is_callable($action)) {
-            return $action(...$arguments);
-        }
-
-        throw new RuntimeException('Invalid route action. Use a closure or Controller@method.');
+        throw new RuntimeException('Invalid route action. Use a closure, callable, or Controller@method.');
     }
 
     private function runMiddleware(string $name, Request $request, callable $next): Response
@@ -112,8 +157,7 @@ final class Router
         }
 
         if (is_callable($middleware)) {
-            $result = $middleware($request, $next);
-            return $this->normalizeResponse($result);
+            return $this->normalizeResponse($middleware($request, $next));
         }
 
         throw new RuntimeException("Invalid middleware: {$name}");
@@ -131,6 +175,28 @@ final class Router
             return new Response('');
         }
         return new Response((string) $result, 200, ['Content-Type' => 'text/html; charset=UTF-8']);
+    }
+
+    /** @return list<string> */
+    private function allowedMethods(string $path): array
+    {
+        $methods = [];
+        foreach ($this->routes as $route) {
+            if ($this->match($route->pattern, $path) !== null) {
+                $methods[] = $route->method;
+                if ($route->method === 'GET') {
+                    $methods[] = 'HEAD';
+                }
+            }
+        }
+
+        if ($methods !== []) {
+            $methods[] = 'OPTIONS';
+        }
+
+        $methods = array_values(array_unique($methods));
+        sort($methods, SORT_STRING);
+        return $methods;
     }
 
     /** @return array<string, string>|null */

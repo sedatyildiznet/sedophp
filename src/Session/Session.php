@@ -17,13 +17,12 @@ final class Session
 
     public static function start(): void
     {
-        if (session_status() === PHP_SESSION_ACTIVE) {
+        if (session_status() === PHP_SESSION_ACTIVE || headers_sent()) {
             return;
         }
 
-        if (headers_sent()) {
-            return;
-        }
+        @ini_set('session.use_strict_mode', '1');
+        @ini_set('session.use_only_cookies', '1');
 
         $secure = (bool) (self::$config['secure'] ?? false)
             || (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
@@ -31,9 +30,9 @@ final class Session
         session_name((string) (self::$config['name'] ?? 'sedophp_session'));
         session_set_cookie_params([
             'lifetime' => 0,
-            'path' => '/',
+            'path' => (string) (self::$config['path'] ?? '/'),
             'secure' => $secure,
-            'httponly' => true,
+            'httponly' => (bool) (self::$config['http_only'] ?? true),
             'samesite' => (string) (self::$config['same_site'] ?? 'Lax'),
         ]);
         session_start();

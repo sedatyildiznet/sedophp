@@ -12,13 +12,15 @@ patch($path, $action)
 delete($path, $action)
 ```
 
-Each returns a route, so middleware can be attached:
+Middleware:
 
 ```php
 post('/account', 'AccountController@save')->middleware('auth', 'csrf');
 ```
 
-Built-in middleware aliases: `auth`, `guest`, `csrf`.
+Built-in aliases: `auth`, `guest`, `csrf`.
+
+The router automatically handles HEAD and OPTIONS, returns 405 with an `Allow` header for wrong methods, and rejects duplicate method/path registrations.
 
 ## Request
 
@@ -29,9 +31,10 @@ request()->method()
 request()->path()
 request()->query('page')
 request()->header('authorization')
-request()->file('avatar')
-request()->expectsJson()
+upload('avatar')
 ```
+
+Malformed JSON returns HTTP 400.
 
 ## Response
 
@@ -44,26 +47,30 @@ back()
 view('home', ['name' => 'Sedat'])
 ```
 
+`back()` refuses cross-host Referer redirects.
+
 ## Database
 
 ```php
 db('users')->get()
 db('users')->select('id', 'name')->get()
 db('users')->where('id', 1)->first()
-db('users')->where('age', '>=', 18)->get()
-db('users')->orWhere('role', 'admin')->get()
-db('users')->whereNull('deleted_at')->get()
-db('users')->whereNotNull('email')->get()
+db('users')->where('deleted_at', null)->get()
+db('users')->whereIn('id', [1, 2, 3])->get()
+db('users')->whereNotIn('role', ['blocked'])->get()
 db('users')->orderBy('name', 'desc')->limit(20)->offset(20)->get()
+db('users')->value('email')
+db('users')->pluck('name')
+db('users')->exists()
 db('users')->count()
 db('users')->insert([...])
 db('users')->where('id', 1)->update([...])
 db('users')->where('id', 1)->delete()
 ```
 
-Table and column names are validated. Values are bound through PDO prepared statements. `update()` and `delete()` refuse to run without a `where` condition.
+Values use PDO prepared statements. Table and column identifiers are validated. Update and delete refuse to run without a WHERE condition.
 
-Native PDO is always available:
+Native PDO:
 
 ```php
 $pdo = \SedoPHP\Database\Database::pdo();
@@ -77,17 +84,63 @@ transaction(function (PDO $db) {
 });
 ```
 
-## Validation
+## Models
+
+Model writes require explicit `$fillable` fields.
 
 ```php
-$errors = validate($data, [
-    'name' => 'required|string|max:120',
-    'email' => 'required|email',
-    'age' => 'nullable|integer',
-]);
+final class User extends Model
+{
+    protected string $table = 'users';
+    protected array $fillable = ['name', 'email', 'password'];
+}
 ```
 
-Rules in 0.1: `required`, `nullable`, `string`, `integer`, `boolean`, `email`, `url`, `min`, `max`, `same`, `confirmed`, `in`.
+For unrestricted explicit writes use `db()`.
+
+## Validation
+
+Rules in the stabilization preview:
+
+`required`, `nullable`, `string`, `integer`, `numeric`, `boolean`, `array`, `email`, `url`, `date`, `min`, `max`, `size`, `same`, `confirmed`, `in`, `regex`, `unique`, `exists`, `file`, `image`, `mimes`.
+
+Database rules:
+
+```php
+'email' => 'unique:users,email'
+'user_id' => 'exists:users,id'
+```
+
+For regex patterns containing `|`, pass rules as an array so the pipe is not interpreted as a rule separator.
+
+For uploaded files, `min`, `max` and `size` are measured in KiB.
+
+## Uploads
+
+```php
+$file = upload('avatar');
+
+if ($file) {
+    $path = $file->save(
+        'storage/uploads',
+        allowedMimes: ['image/jpeg', 'image/png'],
+        maxBytes: 2 * 1024 * 1024,
+    );
+}
+```
+
+Useful methods:
+
+```php
+$file->isValid()
+$file->originalName()
+$file->mimeType()
+$file->extension()
+$file->size()
+$file->isImage()
+```
+
+Executable PHP-style extensions are blocked by `save()`.
 
 ## Session
 
@@ -95,6 +148,7 @@ Rules in 0.1: `required`, `nullable`, `string`, `integer`, `boolean`, `email`, `
 session('key', $default)
 session_set('key', $value)
 session_forget('key')
+session_pull('key', $default)
 flash('message', 'Saved')
 ```
 
@@ -108,6 +162,8 @@ method('PATCH')
 method('DELETE')
 ```
 
+Tokens rotate on login and logout.
+
 ## Authentication
 
 ```php
@@ -118,7 +174,21 @@ user()
 user('email')
 ```
 
-Authentication uses PHP's `password_verify()` and rehashes passwords when `PASSWORD_DEFAULT` changes.
+`user()` never exposes the configured password column.
+
+## CLI
+
+```bash
+php sedo serve
+php sedo make:controller UserController
+php sedo make:model User
+php sedo make:migration create_posts
+php sedo migrate
+php sedo migrate:rollback
+php sedo route:list
+php sedo doctor
+php sedo version
+```
 
 ## Utilities
 

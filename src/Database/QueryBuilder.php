@@ -12,7 +12,7 @@ final class QueryBuilder
 {
     /** @var list<string> */
     private array $columns = ['*'];
-    /** @var list<array{column:string,operator:string,value:mixed,boolean:string}> */
+    /** @var list<array<string, mixed>> */
     private array $wheres = [];
     /** @var list<array{column:string,direction:string}> */
     private array $orders = [];
@@ -40,46 +40,34 @@ final class QueryBuilder
 
     public function where(string $column, mixed $operatorOrValue, mixed $value = null): self
     {
-        self::assertIdentifier($column, true);
-        $argc = func_num_args();
-        $operator = $argc === 2 ? '=' : strtoupper((string) $operatorOrValue);
-        $actualValue = $argc === 2 ? $operatorOrValue : $value;
-
-        if (!in_array($operator, ['=', '!=', '<>', '>', '>=', '<', '<=', 'LIKE'], true)) {
-            throw new InvalidArgumentException("Unsupported where operator: {$operator}");
-        }
-
-        $this->wheres[] = ['column' => $column, 'operator' => $operator, 'value' => $actualValue, 'boolean' => 'AND'];
-        return $this;
+        return $this->basicWhere('AND', $column, $operatorOrValue, $value, func_num_args());
     }
 
     public function orWhere(string $column, mixed $operatorOrValue, mixed $value = null): self
     {
-        self::assertIdentifier($column, true);
-        $argc = func_num_args();
-        $operator = $argc === 2 ? '=' : strtoupper((string) $operatorOrValue);
-        $actualValue = $argc === 2 ? $operatorOrValue : $value;
-
-        if (!in_array($operator, ['=', '!=', '<>', '>', '>=', '<', '<=', 'LIKE'], true)) {
-            throw new InvalidArgumentException("Unsupported where operator: {$operator}");
-        }
-
-        $this->wheres[] = ['column' => $column, 'operator' => $operator, 'value' => $actualValue, 'boolean' => 'OR'];
-        return $this;
+        return $this->basicWhere('OR', $column, $operatorOrValue, $value, func_num_args());
     }
 
     public function whereNull(string $column): self
     {
-        self::assertIdentifier($column, true);
-        $this->wheres[] = ['column' => $column, 'operator' => 'IS NULL', 'value' => null, 'boolean' => 'AND'];
-        return $this;
+        return $this->nullWhere('AND', $column, false);
     }
 
     public function whereNotNull(string $column): self
     {
-        self::assertIdentifier($column, true);
-        $this->wheres[] = ['column' => $column, 'operator' => 'IS NOT NULL', 'value' => null, 'boolean' => 'AND'];
-        return $this;
+        return $this->nullWhere('AND', $column, true);
+    }
+
+    /** @param list<mixed> $values */
+    public function whereIn(string $column, array $values): self
+    {
+        return $this->inWhere('AND', $column, $values, false);
+    }
+
+    /** @param list<mixed> $values */
+    public function whereNotIn(string $column, array $values): self
+    {
+        return $this->inWhere('AND', $column, $values, true);
     }
 
     public function orderBy(string $column, string $direction = 'asc'): self
@@ -115,10 +103,14 @@ final class QueryBuilder
     public function get(): array
     {
         [$whereSql, $bindings] = $this->whereSql();
-        $columns = implode(', ', array_map(fn (string $column) => $column === '*' ? '*' : $this->quote($column), $this->columns));
-        $sql = 'SELECT ' . $columns . ' FROM ' . $this->quote($this->table) . $whereSql . $this->orderSql() . $this->limitSql();
-        $statement = $this->execute($sql, $bindings);
-        return $statement->fetchAll();
+        $columns = implode(', ', array_map(
+            fn (string $column) => $column === '*' ? '*' : $this->quote($column),
+            $this->columns
+        ));
+        $sql = 'SELECT ' . $columns . ' FROM ' . $this->quote($this->table)
+            . $whereSql . $this->orderSql() . $this->limitSql();
+
+        return $this->execute($sql, $bindings)->fetchAll();
     }
 
     /** @return array<string, mixed>|null */
@@ -126,8 +118,46 @@ final class QueryBuilder
     {
         $clone = clone $this;
         $clone->limitValue = 1;
+        return $clone->get()[0] ?? null;
+    }
+
+    public function value(string $column): mixed
+    {
+        self::assertIdentifier($column, true);
+        $clone = clone $this;
+        $clone->columns = [$column];
+        $row = $clone->first();
+        return $row[$column] ?? null;
+    }
+
+    /** @return array<int|string, mixed> */
+    public function pluck(string $column, ?string $key = null): array
+    {
+        self::assertIdentifier($column, true);
+        if ($key !== null) {
+            self::assertIdentifier($key, true);
+        }
+
+        $clone = clone $this;
+        $clone->columns = $key === null ? [$column] : [$key, $column];
         $rows = $clone->get();
-        return $rows[0] ?? null;
+
+        if ($key === null) {
+            return array_values(array_map(static fn (array $row) => $row[$column] ?? null, $rows));
+        }
+
+        $result = [];
+        foreach ($rows as $row) {
+            if (array_key_exists($key, $row)) {
+                $result[$row[$key]] = $row[$column] ?? null;
+            }
+        }
+        return $result;
+    }
+
+    public function exists(): bool
+    {
+        return $this->first() !== null;
     }
 
     public function count(string $column = '*'): int
@@ -151,9 +181,12 @@ final class QueryBuilder
         foreach (array_keys($data) as $column) {
             self::assertIdentifier((string) $column, true);
         }
+
         $columns = array_map(fn (string $column) => $this->quote($column), array_keys($data));
         $placeholders = implode(', ', array_fill(0, count($data), '?'));
-        $sql = 'INSERT INTO ' . $this->quote($this->table) . ' (' . implode(', ', $columns) . ') VALUES (' . $placeholders . ')';
+        $sql = 'INSERT INTO ' . $this->quote($this->table)
+            . ' (' . implode(', ', $columns) . ') VALUES (' . $placeholders . ')';
+
         $this->execute($sql, array_values($data));
         return (int) $this->pdo->lastInsertId();
     }
@@ -167,6 +200,7 @@ final class QueryBuilder
         if ($this->wheres === []) {
             throw new InvalidArgumentException('Refusing to update every row without a where clause.');
         }
+
         $sets = [];
         $bindings = [];
         foreach ($data as $column => $value) {
@@ -174,6 +208,7 @@ final class QueryBuilder
             $sets[] = $this->quote((string) $column) . ' = ?';
             $bindings[] = $value;
         }
+
         [$whereSql, $whereBindings] = $this->whereSql();
         $sql = 'UPDATE ' . $this->quote($this->table) . ' SET ' . implode(', ', $sets) . $whereSql;
         return $this->execute($sql, array_merge($bindings, $whereBindings))->rowCount();
@@ -189,6 +224,56 @@ final class QueryBuilder
         return $this->execute($sql, $bindings)->rowCount();
     }
 
+    private function basicWhere(string $boolean, string $column, mixed $operatorOrValue, mixed $value, int $argc): self
+    {
+        self::assertIdentifier($column, true);
+        $operator = $argc === 2 ? '=' : strtoupper((string) $operatorOrValue);
+        $actualValue = $argc === 2 ? $operatorOrValue : $value;
+
+        if (!in_array($operator, ['=', '!=', '<>', '>', '>=', '<', '<=', 'LIKE'], true)) {
+            throw new InvalidArgumentException("Unsupported where operator: {$operator}");
+        }
+
+        if ($actualValue === null) {
+            return $this->nullWhere($boolean, $column, in_array($operator, ['!=', '<>'], true));
+        }
+
+        $this->wheres[] = [
+            'type' => 'basic',
+            'column' => $column,
+            'operator' => $operator,
+            'value' => $actualValue,
+            'boolean' => $boolean,
+        ];
+        return $this;
+    }
+
+    private function nullWhere(string $boolean, string $column, bool $not): self
+    {
+        self::assertIdentifier($column, true);
+        $this->wheres[] = [
+            'type' => 'null',
+            'column' => $column,
+            'not' => $not,
+            'boolean' => $boolean,
+        ];
+        return $this;
+    }
+
+    /** @param list<mixed> $values */
+    private function inWhere(string $boolean, string $column, array $values, bool $not): self
+    {
+        self::assertIdentifier($column, true);
+        $this->wheres[] = [
+            'type' => 'in',
+            'column' => $column,
+            'values' => array_values($values),
+            'not' => $not,
+            'boolean' => $boolean,
+        ];
+        return $this;
+    }
+
     /** @return array{0:string,1:list<mixed>} */
     private function whereSql(): array
     {
@@ -198,15 +283,35 @@ final class QueryBuilder
 
         $parts = [];
         $bindings = [];
+
         foreach ($this->wheres as $index => $where) {
             $prefix = $index === 0 ? '' : ' ' . $where['boolean'] . ' ';
-            if (in_array($where['operator'], ['IS NULL', 'IS NOT NULL'], true)) {
-                $parts[] = $prefix . $this->quote($where['column']) . ' ' . $where['operator'];
+
+            if ($where['type'] === 'null') {
+                $parts[] = $prefix . $this->quote((string) $where['column'])
+                    . ((bool) $where['not'] ? ' IS NOT NULL' : ' IS NULL');
                 continue;
             }
-            $parts[] = $prefix . $this->quote($where['column']) . ' ' . $where['operator'] . ' ?';
+
+            if ($where['type'] === 'in') {
+                $values = (array) $where['values'];
+                if ($values === []) {
+                    $parts[] = $prefix . ((bool) $where['not'] ? '1 = 1' : '1 = 0');
+                    continue;
+                }
+
+                $parts[] = $prefix . $this->quote((string) $where['column'])
+                    . ((bool) $where['not'] ? ' NOT IN (' : ' IN (')
+                    . implode(', ', array_fill(0, count($values), '?')) . ')';
+                array_push($bindings, ...$values);
+                continue;
+            }
+
+            $parts[] = $prefix . $this->quote((string) $where['column'])
+                . ' ' . $where['operator'] . ' ?';
             $bindings[] = $where['value'];
         }
+
         return [' WHERE ' . implode('', $parts), $bindings];
     }
 
@@ -215,7 +320,10 @@ final class QueryBuilder
         if ($this->orders === []) {
             return '';
         }
-        $parts = array_map(fn (array $order) => $this->quote($order['column']) . ' ' . $order['direction'], $this->orders);
+        $parts = array_map(
+            fn (array $order) => $this->quote($order['column']) . ' ' . $order['direction'],
+            $this->orders
+        );
         return ' ORDER BY ' . implode(', ', $parts);
     }
 
@@ -227,7 +335,9 @@ final class QueryBuilder
         }
         if ($this->offsetValue !== null) {
             if ($this->limitValue === null) {
-                $sql .= Database::driver() === 'sqlite' ? ' LIMIT -1' : ' LIMIT 18446744073709551615';
+                $sql .= Database::driver() === 'sqlite'
+                    ? ' LIMIT -1'
+                    : ' LIMIT 18446744073709551615';
             }
             $sql .= ' OFFSET ' . $this->offsetValue;
         }
@@ -244,8 +354,11 @@ final class QueryBuilder
 
     private function quote(string $identifier): string
     {
-        $quote = Database::driver() === 'mysql' ? '`' : '"';
-        return implode('.', array_map(static fn (string $part) => $quote . $part . $quote, explode('.', $identifier)));
+        $quote = Database::driver() === 'mysql' ? chr(96) : '"';
+        return implode('.', array_map(
+            static fn (string $part) => $quote . $part . $quote,
+            explode('.', $identifier)
+        ));
     }
 
     private static function assertIdentifier(string $identifier, bool $allowDot = false): void
@@ -253,6 +366,7 @@ final class QueryBuilder
         $pattern = $allowDot
             ? '/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?$/'
             : '/^[A-Za-z_][A-Za-z0-9_]*$/';
+
         if (preg_match($pattern, $identifier) !== 1) {
             throw new InvalidArgumentException("Invalid SQL identifier: {$identifier}");
         }

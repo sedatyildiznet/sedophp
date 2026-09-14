@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace SedoPHP\Http;
 
+use JsonException;
+
 final class Request
 {
     /** @param array<string, mixed> $query @param array<string, mixed> $body @param array<string, mixed> $files @param array<string, mixed> $server @param array<string, string> $headers */
@@ -26,10 +28,29 @@ final class Request
         $headers = self::captureHeaders($_SERVER);
         $contentType = strtolower($headers['content-type'] ?? '');
         $body = $_POST;
+        $raw = '';
 
         if (str_contains($contentType, 'application/json')) {
-            $decoded = json_decode((string) file_get_contents('php://input'), true);
-            $body = is_array($decoded) ? $decoded : [];
+            $raw = (string) file_get_contents('php://input');
+            if ($raw !== '') {
+                try {
+                    $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+                } catch (JsonException) {
+                    throw new HttpException(400, 'Invalid JSON body.');
+                }
+                if (!is_array($decoded)) {
+                    throw new HttpException(400, 'JSON request body must be an object or array.');
+                }
+                $body = $decoded;
+            } else {
+                $body = [];
+            }
+        } elseif (
+            in_array($method, ['PUT', 'PATCH', 'DELETE'], true)
+            && str_contains($contentType, 'application/x-www-form-urlencoded')
+        ) {
+            $raw = (string) file_get_contents('php://input');
+            parse_str($raw, $body);
         }
 
         if ($method === 'POST' && isset($body['_method'])) {
@@ -50,7 +71,7 @@ final class Request
         return new self($method, $path, $_GET, $body, $_FILES, $_SERVER, $headers);
     }
 
-    /** @param array<string, mixed> $input */
+    /** @param array<string, mixed> $input @param array<string, string> $headers */
     public static function fake(string $method, string $uri, array $input = [], array $headers = []): self
     {
         $parts = parse_url($uri);
@@ -58,8 +79,16 @@ final class Request
         parse_str((string) ($parts['query'] ?? ''), $query);
         $method = strtoupper($method);
         $body = $method === 'GET' ? [] : $input;
+
         if ($method === 'GET') {
             $query = array_merge($query, $input);
+        }
+
+        if ($method === 'POST' && isset($body['_method'])) {
+            $override = strtoupper((string) $body['_method']);
+            if (in_array($override, ['PUT', 'PATCH', 'DELETE'], true)) {
+                $method = $override;
+            }
         }
 
         $normalizedHeaders = [];
@@ -83,10 +112,7 @@ final class Request
     public function input(?string $key = null, mixed $default = null): mixed
     {
         $all = $this->all();
-        if ($key === null) {
-            return $all;
-        }
-        return $all[$key] ?? $default;
+        return $key === null ? $all : ($all[$key] ?? $default);
     }
 
     /** @return array<string, mixed> */
@@ -110,9 +136,10 @@ final class Request
         return $key === null ? $this->body : ($this->body[$key] ?? $default);
     }
 
-    public function file(string $key): mixed
+    public function file(string $key): ?UploadedFile
     {
-        return $this->files[$key] ?? null;
+        $file = $this->files[$key] ?? null;
+        return is_array($file) ? UploadedFile::fromArray($file) : null;
     }
 
     public function header(string $key, mixed $default = null): mixed
