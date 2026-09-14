@@ -24,6 +24,9 @@ final class Queue
         array $payload = [],
         int $delaySeconds = 0,
         int $maxAttempts = 3,
+        string $queue = 'default',
+        int $backoffSeconds = 30,
+        int $timeoutSeconds = 60,
     ): int {
         if (!class_exists($job) || !is_subclass_of($job, JobInterface::class)) {
             throw new RuntimeException("Queue job must implement JobInterface: {$job}");
@@ -34,6 +37,9 @@ final class Queue
             'payload' => json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
             'attempts' => 0,
             'max_attempts' => max(1, $maxAttempts),
+            'queue' => $queue !== '' ? $queue : 'default',
+            'backoff' => max(1, $backoffSeconds),
+            'timeout' => max(1, $timeoutSeconds),
             'available_at' => gmdate('Y-m-d H:i:s', time() + max(0, $delaySeconds)),
             'reserved_at' => null,
             'failed_at' => null,
@@ -42,13 +48,14 @@ final class Queue
         ]);
     }
 
-    public static function work(int $limit = 10): int
+    public static function work(int $limit = 10, string $queue = 'default'): int
     {
         $limit = max(1, $limit);
         self::releaseStaleReservations();
         $rows = Database::table('jobs')
             ->whereNull('reserved_at')
             ->whereNull('failed_at')
+            ->where('queue', $queue)
             ->where('available_at', '<=', gmdate('Y-m-d H:i:s'))
             ->orderBy('id')
             ->limit($limit)
@@ -122,6 +129,7 @@ final class Queue
         }
 
         try {
+            $startedAt = microtime(true);
             $jobClass = (string) ($row['job'] ?? '');
             if (!class_exists($jobClass) || !is_subclass_of($jobClass, JobInterface::class)) {
                 throw new RuntimeException("Invalid queued job: {$jobClass}");
@@ -134,6 +142,10 @@ final class Queue
 
             $job = new $jobClass();
             $job->handle($payload);
+            $timeout = max(1, (int) ($row['timeout'] ?? 60));
+            if ((microtime(true) - $startedAt) > $timeout) {
+                throw new RuntimeException("Queued job exceeded its {$timeout}s timeout.");
+            }
             Database::table('jobs')->where('id', $id)->delete();
             return true;
         } catch (Throwable $exception) {
@@ -148,7 +160,8 @@ final class Queue
             if ($attempts >= $maxAttempts) {
                 $data['failed_at'] = gmdate('Y-m-d H:i:s');
             } else {
-                $data['available_at'] = gmdate('Y-m-d H:i:s', time() + min(300, 30 * $attempts));
+                $backoff = max(1, (int) ($row['backoff'] ?? 30));
+                $data['available_at'] = gmdate('Y-m-d H:i:s', time() + min(3600, $backoff * $attempts));
             }
 
             Database::table('jobs')->where('id', $id)->update($data);

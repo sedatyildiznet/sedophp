@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SedoPHP\Security;
 
 use RuntimeException;
+use SedoPHP\Cache\Cache;
 
 final class Jwt
 {
@@ -43,6 +44,44 @@ final class Jwt
         $segments[] = self::base64UrlEncode($signature);
 
         return implode('.', $segments);
+    }
+
+    /** @param array<string,mixed> $claims @return array{access_token:string,refresh_token:string,token_type:string,expires_in:int} */
+    public static function pair(array $claims, int $accessTtl = 3600, int $refreshTtl = 2592000): array
+    {
+        $subject = $claims['sub'] ?? null;
+        $accessClaims = array_merge($claims, ['typ' => 'access', 'jti' => bin2hex(random_bytes(16))]);
+        $refreshClaims = ['typ' => 'refresh', 'jti' => bin2hex(random_bytes(16))];
+        if ($subject !== null) {
+            $refreshClaims['sub'] = $subject;
+        }
+        return [
+            'access_token' => self::encode($accessClaims, $accessTtl),
+            'refresh_token' => self::encode($refreshClaims, $refreshTtl),
+            'token_type' => 'Bearer',
+            'expires_in' => $accessTtl,
+        ];
+    }
+
+    /** @return array{access_token:string,refresh_token:string,token_type:string,expires_in:int}|null */
+    public static function refresh(string $refreshToken, int $accessTtl = 3600, int $refreshTtl = 2592000): ?array
+    {
+        $claims = self::decode($refreshToken);
+        if ($claims === null || ($claims['typ'] ?? null) !== 'refresh') {
+            return null;
+        }
+        self::revoke($refreshToken);
+        return self::pair(['sub' => $claims['sub'] ?? null], $accessTtl, $refreshTtl);
+    }
+
+    public static function revoke(string $token): bool
+    {
+        $claims = self::decode($token);
+        if ($claims === null || !isset($claims['jti'], $claims['exp'])) {
+            return false;
+        }
+        Cache::put('jwt:revoked:' . (string) $claims['jti'], true, max(1, (int) $claims['exp'] - time()));
+        return true;
     }
 
     /** @return array<string, mixed>|null */
@@ -89,6 +128,16 @@ final class Jwt
 
         if (self::$issuer !== '' && (!isset($payload['iss']) || !hash_equals(self::$issuer, (string) $payload['iss']))) {
             return null;
+        }
+
+        if (isset($payload['jti'])) {
+            try {
+                if (Cache::has('jwt:revoked:' . (string) $payload['jti'])) {
+                    return null;
+                }
+            } catch (RuntimeException) {
+                // Signature/claim validation remains usable before the optional cache is booted.
+            }
         }
 
         return $payload;

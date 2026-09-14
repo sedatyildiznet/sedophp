@@ -16,14 +16,19 @@
 - HS256 JWT issuing/validation and jwt middleware
 - request attributes for token/JWT context
 - strict JWT expiry/issuer validation and orphaned API-token rejection
+- rotating JWT refresh tokens and cache-backed revocation
 - trusted proxy/CIDR support for safe client IP rate limiting
+- configurable CORS and secure response headers
 
 ### Application services
 
 - file cache with TTL, remember, forget, clear and atomic increment
 - log, native PHP mail and SMTP mail drivers
+- mail CC, BCC, attachments and socket-level SMTP integration tests
 - database queue with stale-worker recovery and failed-job operations
+- named queues with per-job backoff and timeout limits
 - shared-hosting-friendly scheduler with overlap and duplicate-run protection
+- cron expressions and per-task timezones
 - queue worker, failed-job and scheduler CLI commands
 
 ## 0.1.0 — 2026-09-14

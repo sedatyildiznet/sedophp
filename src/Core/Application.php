@@ -19,6 +19,7 @@ use SedoPHP\Middleware\RateLimitMiddleware;
 use SedoPHP\Queue\Queue;
 use SedoPHP\Routing\Router;
 use SedoPHP\Security\Jwt;
+use SedoPHP\Security\HttpSecurity;
 use SedoPHP\Session\Session;
 use SedoPHP\View\View;
 
@@ -46,6 +47,7 @@ final class Application
         Queue::configure((array) Config::get('queue', []));
         Auth::configure((array) Config::get('auth', []));
         Jwt::configure((array) Config::get('auth', []));
+        HttpSecurity::configure((array) Config::get('security', []));
         Cache::configure((array) Config::get('cache', []), $this->basePath);
         Mailer::configure((array) Config::get('mail', []));
         View::configure($this->path('app/Views'));
@@ -78,7 +80,7 @@ final class Application
     public function run(): void
     {
         $this->request = Request::capture((string) Config::get('app.base_path', ''));
-        $this->router->dispatch($this->request)->send();
+        HttpSecurity::apply($this->router->dispatch($this->request), $this->request)->send();
     }
 
     public function router(): Router

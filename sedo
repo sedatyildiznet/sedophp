@@ -149,7 +149,8 @@ switch ($command) {
 
     case 'queue:work':
         $limit = max(1, (int) ($name ?? 10));
-        $count = Queue::work($limit);
+        $queueName = $argv[3] ?? 'default';
+        $count = Queue::work($limit, $queueName);
         echo "Processed {$count} queued job(s).\n";
         break;
 
@@ -223,7 +224,7 @@ SedoPHP CLI
   php sedo make:migration create_posts
   php sedo migrate
   php sedo migrate:rollback
-  php sedo queue:work [10]
+  php sedo queue:work [10] [queue]
   php sedo queue:failed [50]
   php sedo queue:retry [id|all]
   php sedo queue:flush

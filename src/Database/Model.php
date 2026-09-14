@@ -187,6 +187,7 @@ abstract class Model implements ArrayAccess, JsonSerializable
     /** @param list<static> $models */
     private static function eagerLoad(array $models, string $name): void
     {
+        [$name, $nested] = array_pad(explode('.', $name, 2), 2, null);
         if ($models === [] || $name === '' || !is_callable([$models[0], $name])) {
             throw new RuntimeException('Unknown model relation: ' . $name);
         }
@@ -208,6 +209,13 @@ abstract class Model implements ArrayAccess, JsonSerializable
             foreach ($models as $index => $model) {
                 $model->setRelation($name, $grouped[(string) $relations[$index]->localValue()] ?? []);
             }
+            if ($nested !== null && $rows !== []) {
+                $children = [];
+                foreach ($models as $model) {
+                    array_push($children, ...$model->get($name, []));
+                }
+                $class::eagerLoad($children, $nested);
+            }
             return;
         }
 
@@ -224,6 +232,9 @@ abstract class Model implements ArrayAccess, JsonSerializable
             }
             foreach ($models as $index => $model) {
                 $model->setRelation($name, $indexed[(string) $relations[$index]->foreignValue()] ?? null);
+            }
+            if ($nested !== null && $indexed !== []) {
+                $class::eagerLoad(array_values($indexed), $nested);
             }
             return;
         }

@@ -17,6 +17,7 @@ use SedoPHP\Queue\Queue;
 use SedoPHP\Scheduling\Schedule;
 use SedoPHP\Security\Jwt;
 use SedoPHP\Security\RateLimiter;
+use SedoPHP\Security\HttpSecurity;
 use SedoPHP\Middleware\JwtMiddleware;
 
 require dirname(__DIR__) . '/bootstrap/autoload.php';
@@ -169,6 +170,26 @@ $test('JWT signs, validates and rejects tampering', static function () use ($exp
         static fn (): Response => Response::json(['ok' => true])
     );
     $expect($response->status() === 401);
+
+    $pair = Jwt::pair(['sub' => 7], 300, 600);
+    $expect((Jwt::decode($pair['access_token'])['typ'] ?? null) === 'access');
+    $replacement = Jwt::refresh($pair['refresh_token'], 300, 600);
+    $expect(is_array($replacement));
+    $expect(Jwt::decode($pair['refresh_token']) === null, 'Used refresh token remained valid.');
+    $expect(Jwt::revoke($replacement['access_token']));
+    $expect(Jwt::decode($replacement['access_token']) === null);
+});
+
+$test('security headers and allowed CORS origins are applied', static function () use ($expect): void {
+    HttpSecurity::configure([
+        'cors_origins' => ['https://app.example.com'],
+        'cors_methods' => ['GET', 'POST'],
+        'cors_headers' => ['Authorization'],
+        'headers' => ['X-Content-Type-Options' => 'nosniff'],
+    ]);
+    $response = HttpSecurity::apply(new Response('ok'), Request::fake('GET', '/', [], ['Origin' => 'https://app.example.com']));
+    $expect(($response->headers()['Access-Control-Allow-Origin'] ?? null) === 'https://app.example.com');
+    $expect(($response->headers()['X-Content-Type-Options'] ?? null) === 'nosniff');
 });
 
 $test('request only trusts forwarding headers from configured proxies', static function () use ($expect): void {
@@ -261,6 +282,10 @@ $test('database queue dispatches and executes jobs', static function () use ($ex
     $expect($processed === 1);
     $expect((FeatureJob::$handled[0]['id'] ?? null) === 99);
     $expect(Database::table('jobs')->count() === 0);
+
+    Queue::push(FeatureJob::class, ['queue' => 'mail'], 0, 3, 'mail');
+    $expect(Queue::work(5, 'default') === 0);
+    $expect(Queue::work(5, 'mail') === 1);
 });
 
 $test('queue recovers stale reservations and supports failed-job operations', static function () use ($expect): void {
@@ -291,6 +316,17 @@ $test('scheduler runs due callbacks', static function () use ($expect): void {
     $expect($runs === 1);
 });
 
+$test('scheduler supports cron expressions and timezones', static function () use ($expect): void {
+    $runs = 0;
+    $schedule = new Schedule();
+    $schedule->call(static function () use (&$runs): void { $runs++; })
+        ->cron('*/15 10-12 * * 1-5')
+        ->timezone('Europe/Istanbul')
+        ->description('cron timezone test');
+    $expect($schedule->runDue(new DateTimeImmutable('2026-09-14 07:30:00 UTC')) === 1);
+    $expect($runs === 1);
+});
+
 $test('scheduler does not count tasks skipped by overlap locks', static function () use ($expect): void {
     $schedule = new Schedule();
     $schedule->call(static function (): void {})->description('locked feature task')->withoutOverlapping();
@@ -299,8 +335,28 @@ $test('scheduler does not count tasks skipped by overlap locks', static function
 });
 
 $test('log mail driver accepts valid messages without external services', static function () use ($expect): void {
-    $expect(Mailer::send('receiver@example.com', 'Test mail', '<b>Hello</b>', 'Hello'));
+    $attachment = sys_get_temp_dir() . '/sedophp-attachment-' . getmypid() . '.txt';
+    file_put_contents($attachment, 'attachment body');
+    $expect(Mailer::send('receiver@example.com', 'Test mail', '<b>Hello</b>', 'Hello', [], [
+        'cc' => ['copy@example.com'],
+        'bcc' => ['hidden@example.com'],
+        'attachments' => [['path' => $attachment, 'name' => 'report.txt']],
+    ]));
+    @unlink($attachment);
 });
+
+if (getenv('TEST_SMTP') === '1') {
+    $test('SMTP transport sends a MIME message to a real socket server', static function () use ($expect): void {
+        Mailer::configure([
+            'driver' => 'smtp', 'host' => '127.0.0.1', 'port' => 2525, 'encryption' => '',
+            'from_address' => 'tests@example.com', 'from_name' => 'SedoPHP Tests', 'timeout' => 5,
+        ]);
+        $expect(Mailer::send('receiver@example.com', 'SMTP integration', '<b>Hello</b>', 'Hello'));
+        $capture = (string) getenv('TEST_SMTP_CAPTURE');
+        $expect(is_file($capture));
+        $expect(str_contains((string) file_get_contents($capture), 'Subject: SMTP integration'));
+    });
+}
 
 foreach (glob($cacheDirectory . '/*') ?: [] as $file) {
     @unlink($file);

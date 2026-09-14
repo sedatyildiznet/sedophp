@@ -247,6 +247,25 @@ if (!function_exists('jwt_decode')) {
     function jwt_decode(string $token): ?array { return Jwt::decode($token); }
 }
 
+if (!function_exists('jwt_pair')) {
+    /** @param array<string,mixed> $claims @return array{access_token:string,refresh_token:string,token_type:string,expires_in:int} */
+    function jwt_pair(array $claims, int $accessTtl = 3600, int $refreshTtl = 2592000): array
+    {
+        return Jwt::pair($claims, $accessTtl, $refreshTtl);
+    }
+}
+
+if (!function_exists('jwt_refresh')) {
+    function jwt_refresh(string $token, int $accessTtl = 3600, int $refreshTtl = 2592000): ?array
+    {
+        return Jwt::refresh($token, $accessTtl, $refreshTtl);
+    }
+}
+
+if (!function_exists('jwt_revoke')) {
+    function jwt_revoke(string $token): bool { return Jwt::revoke($token); }
+}
+
 if (!function_exists('jwt_claim')) {
     function jwt_claim(string $key, mixed $default = null): mixed
     {
@@ -288,28 +307,37 @@ if (!function_exists('rate_limit')) {
 }
 
 if (!function_exists('mail_send')) {
-    /** @param string|list<string> $to @param array<string,string> $headers */
+    /** @param string|list<string> $to @param array<string,string> $headers @param array<string,mixed> $options */
     function mail_send(
         string|array $to,
         string $subject,
         string $html,
         ?string $text = null,
         array $headers = [],
+        array $options = [],
     ): bool {
-        return Mailer::send($to, $subject, $html, $text, $headers);
+        return Mailer::send($to, $subject, $html, $text, $headers, $options);
     }
 }
 
 if (!function_exists('queue_push')) {
     /** @param class-string<\SedoPHP\Queue\JobInterface> $job @param array<string,mixed> $payload */
-    function queue_push(string $job, array $payload = [], int $delaySeconds = 0, int $maxAttempts = 3): int
+    function queue_push(
+        string $job,
+        array $payload = [],
+        int $delaySeconds = 0,
+        int $maxAttempts = 3,
+        string $queue = 'default',
+        int $backoffSeconds = 30,
+        int $timeoutSeconds = 60,
+    ): int
     {
-        return Queue::push($job, $payload, $delaySeconds, $maxAttempts);
+        return Queue::push($job, $payload, $delaySeconds, $maxAttempts, $queue, $backoffSeconds, $timeoutSeconds);
     }
 }
 
 if (!function_exists('queue_work')) {
-    function queue_work(int $limit = 10): int { return Queue::work($limit); }
+    function queue_work(int $limit = 10, string $queue = 'default'): int { return Queue::work($limit, $queue); }
 }
 
 if (!function_exists('log_info')) {

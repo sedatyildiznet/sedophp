@@ -122,6 +122,10 @@ JWT_ISSUER=https://example.com
 $jwt = jwt_encode(['sub' => 5], 3600);
 $claims = jwt_decode($jwt);
 
+$tokens = jwt_pair(['sub' => 5]);
+$replacement = jwt_refresh($tokens['refresh_token']);
+jwt_revoke($replacement['access_token']);
+
 get('/api/private', function () {
     return json(['user_id' => jwt_claim('sub')]);
 })->middleware('jwt');
@@ -155,6 +159,18 @@ mail_send(
 
 The SMTP implementation supports TLS/SSL and AUTH LOGIN without a third-party runtime package.
 
+CC, BCC and attachments can be supplied through the options argument:
+
+~~~php
+mail_send('user@example.com', 'Report', '<b>Ready</b>', 'Ready', [], [
+    'cc' => ['team@example.com'],
+    'bcc' => ['audit@example.com'],
+    'attachments' => [
+        ['path' => app()->path('storage/reports/monthly.pdf'), 'name' => 'report.pdf'],
+    ],
+]);
+~~~
+
 ## Database queue
 
 Jobs implement SedoPHP\Queue\JobInterface:
@@ -169,12 +185,22 @@ final class SendWelcomeMail implements JobInterface
 }
 
 queue_push(SendWelcomeMail::class, ['user_id' => 5]);
+
+queue_push(
+    SendWelcomeMail::class,
+    ['user_id' => 5],
+    delaySeconds: 0,
+    maxAttempts: 5,
+    queue: 'mail',
+    backoffSeconds: 60,
+    timeoutSeconds: 120,
+);
 ~~~
 
 Process queued work:
 
 ~~~bash
-php sedo queue:work 20
+php sedo queue:work 20 mail
 ~~~
 
 Jobs track attempts, retry with a short backoff and retain failed rows for inspection.
@@ -207,6 +233,14 @@ $schedule->call(static function (): void {
 
 Available scheduling helpers include everyMinute(), hourly(), daily(), dailyAt(), weeklyOn(), weekdays() and when().
 
+Cron expressions and per-task timezones are supported:
+
+~~~php
+$schedule->call($callback)
+    ->cron('*/15 9-18 * * 1-5')
+    ->timezone('Europe/Istanbul');
+~~~
+
 On shared hosting, configure cPanel Cron to execute once per minute:
 
 ~~~bash
@@ -215,3 +249,13 @@ php /home/USER/public_html/sedo schedule:run
 
 No permanent scheduler daemon is required.
 Each task is executed at most once per due minute, and overlap-skipped tasks are not counted as completed.
+
+## CORS and security headers
+
+Configure allowed browser origins as a comma-separated list:
+
+~~~dotenv
+CORS_ORIGINS=https://app.example.com,https://admin.example.com
+~~~
+
+SedoPHP adds `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy` by default. CORS response headers are emitted only for explicitly allowed origins.
