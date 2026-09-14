@@ -161,9 +161,23 @@ $test('back() accepts same origin with port and rejects external origins', stati
     $external = back();
     $expect(($external->headers()['Location'] ?? '') === '/');
 
-    $oldHost === null ? unset($_SERVER['HTTP_HOST']) : $_SERVER['HTTP_HOST'] = $oldHost;
-    $oldReferer === null ? unset($_SERVER['HTTP_REFERER']) : $_SERVER['HTTP_REFERER'] = $oldReferer;
-    $oldHttps === null ? unset($_SERVER['HTTPS']) : $_SERVER['HTTPS'] = $oldHttps;
+    if ($oldHost === null) {
+        unset($_SERVER['HTTP_HOST']);
+    } else {
+        $_SERVER['HTTP_HOST'] = $oldHost;
+    }
+
+    if ($oldReferer === null) {
+        unset($_SERVER['HTTP_REFERER']);
+    } else {
+        $_SERVER['HTTP_REFERER'] = $oldReferer;
+    }
+
+    if ($oldHttps === null) {
+        unset($_SERVER['HTTPS']);
+    } else {
+        $_SERVER['HTTPS'] = $oldHttps;
+    }
 });
 
 $test('Relative SQLite paths resolve from the project root', static function () use ($expect): void {
