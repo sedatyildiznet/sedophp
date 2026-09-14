@@ -9,7 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  sqlite:
+    name: SQLite / PHP ${{ matrix.php }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -25,6 +26,45 @@ jobs:
       - name: Check SQLite test driver
         run: >-
           php -r 'exit(in_array("sqlite", PDO::getAvailableDrivers(), true) ? 0 : 1);'
+      - name: Lint
+        run: find src app bootstrap config routes public database tests -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Test
+        run: php tests/run.php
+
+  mariadb:
+    name: MariaDB / PHP 8.3
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: sedophp
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      TEST_DB_DRIVER: mysql
+      TEST_DB_HOST: 127.0.0.1
+      TEST_DB_PORT: ${{ job.services.mariadb.ports[3306] }}
+      TEST_DB_NAME: sedophp
+      TEST_DB_USER: root
+      TEST_DB_PASS: root
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql
+          coverage: none
+      - name: Check MySQL test driver
+        run: >-
+          php -r 'exit(in_array("mysql", PDO::getAvailableDrivers(), true) ? 0 : 1);'
       - name: Lint
         run: find src app bootstrap config routes public database tests -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Test

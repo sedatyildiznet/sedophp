@@ -37,11 +37,28 @@ $expect = static function (bool $condition, string $message = 'Expectation faile
 
 Session::configure(['name' => 'sedophp_test_' . getmypid(), 'secure' => false, 'same_site' => 'Lax']);
 Session::start();
-$hasSqlite = in_array('sqlite', PDO::getAvailableDrivers(), true);
-if ($hasSqlite) {
+$testDriver = (string) (getenv('TEST_DB_DRIVER') ?: 'sqlite');
+$hasDatabase = false;
+
+if ($testDriver === 'mysql' && in_array('mysql', PDO::getAvailableDrivers(), true)) {
+    Database::configure([
+        'driver' => 'mysql',
+        'host' => (string) (getenv('TEST_DB_HOST') ?: '127.0.0.1'),
+        'port' => (int) (getenv('TEST_DB_PORT') ?: 3306),
+        'database' => (string) (getenv('TEST_DB_NAME') ?: 'sedophp'),
+        'username' => (string) (getenv('TEST_DB_USER') ?: 'root'),
+        'password' => (string) (getenv('TEST_DB_PASS') ?: ''),
+        'charset' => 'utf8mb4',
+    ]);
+    $pdo = Database::pdo();
+    $pdo->exec('DROP TABLE IF EXISTS users');
+    $pdo->exec('CREATE TABLE users (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, name VARCHAR(120) NOT NULL, email VARCHAR(190) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    $hasDatabase = true;
+} elseif ($testDriver === 'sqlite' && in_array('sqlite', PDO::getAvailableDrivers(), true)) {
     Database::configure(['driver' => 'sqlite', 'sqlite' => ':memory:']);
     $pdo = Database::pdo();
     $pdo->exec('CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL)');
+    $hasDatabase = true;
 }
 
 $test('Response JSON encoding', static function () use ($expect): void {
@@ -79,7 +96,7 @@ $test('Validation catches invalid input', static function () use ($expect): void
     $expect(isset($errors['password']));
 });
 
-if ($hasSqlite) {
+if ($hasDatabase) {
     $test('Query builder inserts and reads safely', static function () use ($expect): void {
         $id = Database::table('users')->insert([
             'name' => 'Sedat',
@@ -155,7 +172,7 @@ if ($hasSqlite) {
     });
 
 } else {
-    echo "[SKIP] Database/model/auth/transaction tests: pdo_sqlite is not installed.\n";
+    echo "[SKIP] Database/model/auth/transaction tests: requested PDO test driver is unavailable.\n";
 }
 
 $test('CSRF middleware accepts valid token and rejects invalid token', static function () use ($expect): void {
