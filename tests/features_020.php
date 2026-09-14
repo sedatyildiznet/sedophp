@@ -112,12 +112,27 @@ $test('file cache supports TTL, remember and atomic increment', static function 
     $expect(Cache::increment('counter', 2, 60) === 3);
 });
 
-$test('JWT signs, validates and rejects tampering', static function () use ($expect): void {
+$test('JWT signs, validates and rejects tampering or invalid registered claims', static function () use ($expect): void {
     $token = Jwt::encode(['sub' => 7], 300);
     $claims = Jwt::decode($token);
 
     $expect(($claims['sub'] ?? null) === 7);
     $expect(Jwt::decode($token . 'x') === null);
+
+    Jwt::configure([
+        'jwt_secret' => str_repeat('s', 48),
+        'jwt_issuer' => '',
+    ]);
+    $missingIssuer = Jwt::encode(['sub' => 7], 300);
+    $invalidExpiration = Jwt::encode(['sub' => 7, 'exp' => 'not-a-timestamp'], 300);
+
+    Jwt::configure([
+        'jwt_secret' => str_repeat('s', 48),
+        'jwt_issuer' => 'sedophp-tests',
+    ]);
+
+    $expect(Jwt::decode($missingIssuer) === null);
+    $expect(Jwt::decode($invalidExpiration) === null);
 });
 
 $test('rate limiter blocks after the configured maximum', static function () use ($expect): void {
@@ -173,13 +188,24 @@ $test('database API tokens authenticate bearer requests and abilities', static f
     $expect(ApiToken::revoke($plain));
 });
 
-$test('database queue dispatches and executes jobs', static function () use ($expect): void {
+$test('database queue dispatches, recovers stale reservations and executes jobs', static function () use ($expect): void {
     FeatureJob::$handled = [];
+
+    $staleId = Queue::push(FeatureJob::class, ['id' => 98]);
+    Database::table('jobs')->where('id', $staleId)->update([
+        'reserved_at' => gmdate('Y-m-d H:i:s', time() - 7200),
+    ]);
+
+    $expect(Queue::releaseStale(3600) === 1);
+    $expect(Database::table('jobs')->where('id', $staleId)->value('reserved_at') === null);
+
     Queue::push(FeatureJob::class, ['id' => 99]);
     $processed = Queue::work(5);
 
-    $expect($processed === 1);
-    $expect((FeatureJob::$handled[0]['id'] ?? null) === 99);
+    $expect($processed === 2);
+    $handledIds = array_column(FeatureJob::$handled, 'id');
+    sort($handledIds);
+    $expect($handledIds === [98, 99]);
     $expect(Database::table('jobs')->count() === 0);
 });
 
