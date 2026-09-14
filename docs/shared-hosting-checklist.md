@@ -25,3 +25,18 @@ Real cPanel, LiteSpeed and Apache configurations differ between providers. Use t
 - [ ] production errors do not expose stack traces
 
 Passing this checklist on a new provider confirms provider-specific deployment behavior; it is not a substitute for the automated test suite.
+
+
+## Verified deployment
+
+SedoPHP 0.1.0 has been verified on a real shared-hosting account with:
+
+- PHP 8.4.24
+- installation in a subdirectory using `APP_BASE_PATH`
+- root and public `.htaccess` rewrite flow
+- normal application page rendering
+- `/health` JSON route
+- MySQL connection through `.env`
+- successful query against the `users` table
+
+This verifies the basic shared-hosting deployment path. Provider-specific behavior for other Apache/LiteSpeed/cPanel configurations should still be checked with the list above.
