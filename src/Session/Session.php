@@ -43,6 +43,7 @@ final class Session
                 unset($_SESSION[(string) $key]);
             }
         }
+
         $_SESSION['_sedo_flash_old'] = $_SESSION['_sedo_flash_new'] ?? [];
         $_SESSION['_sedo_flash_new'] = [];
     }
@@ -78,6 +79,7 @@ final class Session
     {
         self::set($key, $value);
         $_SESSION['_sedo_flash_new'] ??= [];
+
         if (!in_array($key, $_SESSION['_sedo_flash_new'], true)) {
             $_SESSION['_sedo_flash_new'][] = $key;
         }
@@ -85,7 +87,7 @@ final class Session
 
     public static function regenerate(): void
     {
-        if (session_status() === PHP_SESSION_ACTIVE) {
+        if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
             session_regenerate_id(true);
         }
     }
@@ -95,6 +97,7 @@ final class Session
         if (session_status() !== PHP_SESSION_ACTIVE) {
             return;
         }
+
         $_SESSION = [];
         session_destroy();
     }

@@ -29,7 +29,7 @@ final class Validator
                 }
 
                 [$name, $parameter] = array_pad(explode(':', $rule, 2), 2, null);
-                $message = self::check($name, $parameter, $field, $value, $data);
+                $message = self::check($name, $parameter, $field, $value, $data, $fieldRules);
 
                 if ($message !== null) {
                     $errors[$field][] = $message;
@@ -40,10 +40,17 @@ final class Validator
         return $errors;
     }
 
-    /** @param array<string, mixed> $data */
-    private static function check(string $rule, ?string $parameter, string $field, mixed $value, array $data): ?string
-    {
+    /** @param array<string, mixed> $data @param array<int, string> $fieldRules */
+    private static function check(
+        string $rule,
+        ?string $parameter,
+        string $field,
+        mixed $value,
+        array $data,
+        array $fieldRules,
+    ): ?string {
         $empty = $value === null || $value === '';
+        $numericMode = in_array('numeric', $fieldRules, true) || in_array('integer', $fieldRules, true);
 
         return match ($rule) {
             'required' => $empty ? "{$field} is required." : null,
@@ -55,9 +62,9 @@ final class Validator
             'email' => !$empty && filter_var($value, FILTER_VALIDATE_EMAIL) === false ? "{$field} must be a valid email address." : null,
             'url' => !$empty && filter_var($value, FILTER_VALIDATE_URL) === false ? "{$field} must be a valid URL." : null,
             'date' => !$empty && strtotime((string) $value) === false ? "{$field} must be a valid date." : null,
-            'min' => !$empty && self::measure($value) < (float) $parameter ? "{$field} must be at least {$parameter}." : null,
-            'max' => !$empty && self::measure($value) > (float) $parameter ? "{$field} may not be greater than {$parameter}." : null,
-            'size' => !$empty && self::measure($value) !== (float) $parameter ? "{$field} must have size {$parameter}." : null,
+            'min' => !$empty && self::measure($value, $numericMode) < (float) $parameter ? "{$field} must be at least {$parameter}." : null,
+            'max' => !$empty && self::measure($value, $numericMode) > (float) $parameter ? "{$field} may not be greater than {$parameter}." : null,
+            'size' => !$empty && self::measure($value, $numericMode) !== (float) $parameter ? "{$field} must have size {$parameter}." : null,
             'same' => ($data[$parameter ?? ''] ?? null) !== $value ? "{$field} must match {$parameter}." : null,
             'confirmed' => ($data[$field . '_confirmation'] ?? null) !== $value ? "{$field} confirmation does not match." : null,
             'in' => !$empty && !in_array((string) $value, explode(',', (string) $parameter), true) ? "{$field} has an invalid value." : null,
@@ -71,7 +78,7 @@ final class Validator
         };
     }
 
-    private static function measure(mixed $value): float
+    private static function measure(mixed $value, bool $numericMode): float
     {
         if ($value instanceof UploadedFile) {
             return $value->size() / 1024;
@@ -81,7 +88,7 @@ final class Validator
             return (float) count($value);
         }
 
-        if (is_numeric($value)) {
+        if ($numericMode && is_numeric($value)) {
             return (float) $value;
         }
 
