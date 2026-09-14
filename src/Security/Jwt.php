@@ -79,15 +79,15 @@ final class Jwt
         }
 
         $now = time();
-        if (isset($payload['exp']) && is_numeric($payload['exp']) && (int) $payload['exp'] <= $now) {
+        if (!isset($payload['exp']) || !is_numeric($payload['exp']) || (int) $payload['exp'] <= $now) {
             return null;
         }
 
-        if (isset($payload['nbf']) && is_numeric($payload['nbf']) && (int) $payload['nbf'] > $now) {
+        if (isset($payload['nbf']) && (!is_numeric($payload['nbf']) || (int) $payload['nbf'] > $now)) {
             return null;
         }
 
-        if (self::$issuer !== '' && isset($payload['iss']) && !hash_equals(self::$issuer, (string) $payload['iss'])) {
+        if (self::$issuer !== '' && (!isset($payload['iss']) || !hash_equals(self::$issuer, (string) $payload['iss']))) {
             return null;
         }
 

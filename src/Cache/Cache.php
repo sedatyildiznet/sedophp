@@ -47,6 +47,40 @@ final class Cache
         self::writePayload($key, ['expires_at' => $expiresAt, 'value' => $value]);
     }
 
+    public static function add(string $key, mixed $value, int $ttlSeconds): bool
+    {
+        if ($ttlSeconds < 1) {
+            throw new RuntimeException('Cache add TTL must be at least one second.');
+        }
+
+        self::ensureDirectory();
+        $file = self::file($key);
+
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $handle = @fopen($file, 'x');
+            if ($handle !== false) {
+                try {
+                    $payload = serialize(['expires_at' => time() + $ttlSeconds, 'value' => $value]);
+                    if (fwrite($handle, $payload) === false) {
+                        @unlink($file);
+                        throw new RuntimeException('Unable to write cache file.');
+                    }
+                    fflush($handle);
+                    return true;
+                } finally {
+                    fclose($handle);
+                }
+            }
+
+            [$found] = self::read($key);
+            if ($found) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
     public static function remember(string $key, int $ttlSeconds, callable $callback): mixed
     {
         [$found, $value] = self::read($key);

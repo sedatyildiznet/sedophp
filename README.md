@@ -261,7 +261,7 @@ MIT.
 
 ## 0.2 development features
 
-The current development branch adds pagination, hasMany/belongsTo model relations, file cache, rate limiting, hashed database API tokens, HS256 JWT authentication, SMTP mail, a database queue and a shared-hosting-friendly scheduler.
+The current `main` branch contains in-development 0.2 features: pagination, model relations and eager loading, file cache, proxy-aware rate limiting, database API tokens, stricter HS256 JWT authentication, SMTP mail, a recoverable database queue and a duplicate-safe scheduler.
 
 These features remain dependency-light: Redis, Node.js and permanent worker daemons are not required. Queue workers and scheduled tasks can be invoked from cPanel Cron.
 

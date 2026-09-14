@@ -153,6 +153,31 @@ switch ($command) {
         echo "Processed {$count} queued job(s).\n";
         break;
 
+    case 'queue:failed':
+        $rows = Queue::failed(max(1, (int) ($name ?? 50)));
+        if ($rows === []) {
+            echo "No failed jobs.\n";
+            break;
+        }
+        echo str_pad('ID', 8) . str_pad('JOB', 50) . "FAILED AT\n";
+        foreach ($rows as $row) {
+            echo str_pad((string) ($row['id'] ?? ''), 8)
+                . str_pad(substr((string) ($row['job'] ?? ''), 0, 48), 50)
+                . (string) ($row['failed_at'] ?? '') . "\n";
+        }
+        break;
+
+    case 'queue:retry':
+        $id = $name === null || $name === 'all' ? null : $name;
+        $count = Queue::retryFailed($id);
+        echo "Retried {$count} failed job(s).\n";
+        break;
+
+    case 'queue:flush':
+        $count = Queue::flushFailed();
+        echo "Deleted {$count} failed job(s).\n";
+        break;
+
     case 'schedule:run':
         $schedule = new Schedule();
         $scheduleFile = $app->path('routes/schedule.php');
@@ -199,6 +224,9 @@ SedoPHP CLI
   php sedo migrate
   php sedo migrate:rollback
   php sedo queue:work [10]
+  php sedo queue:failed [50]
+  php sedo queue:retry [id|all]
+  php sedo queue:flush
   php sedo schedule:run
   php sedo route:list
   php sedo doctor

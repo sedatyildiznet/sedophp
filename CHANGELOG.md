@@ -5,7 +5,7 @@
 ### Database and models
 
 - query-builder pagination with metadata
-- hasMany and belongsTo model relations with hydrated model results
+- hasMany and belongsTo model relations with hydrated results and eager loading
 - database-backed API token and queue migrations
 
 ### Security and APIs
@@ -15,14 +15,16 @@
 - hashed database API tokens with abilities and revocation
 - HS256 JWT issuing/validation and jwt middleware
 - request attributes for token/JWT context
+- strict JWT expiry/issuer validation and orphaned API-token rejection
+- trusted proxy/CIDR support for safe client IP rate limiting
 
 ### Application services
 
 - file cache with TTL, remember, forget, clear and atomic increment
 - log, native PHP mail and SMTP mail drivers
-- database queue with retry/failure tracking
-- shared-hosting-friendly scheduler with overlap protection
-- queue:work and schedule:run CLI commands
+- database queue with stale-worker recovery and failed-job operations
+- shared-hosting-friendly scheduler with overlap and duplicate-run protection
+- queue worker, failed-job and scheduler CLI commands
 
 ## 0.1.0 — 2026-09-14
 

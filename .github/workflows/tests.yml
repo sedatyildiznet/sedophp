@@ -82,7 +82,7 @@ jobs:
       - name: Lint
         run: php tools/lint.php
       - name: Test including migrations
-        run: php tests/run.php
+        run: composer test
       - name: Doctor against MariaDB
         run: |
           printf '%s\n'             'APP_ENV=production'             'APP_DEBUG=false'             'DB_DRIVER=mysql'             'DB_HOST=127.0.0.1'             'DB_PORT=3306'             'DB_NAME=sedophp'             'DB_USER=root'             'DB_PASS=root'             > .env

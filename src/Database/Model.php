@@ -47,6 +47,16 @@ abstract class Model implements ArrayAccess, JsonSerializable
         return array_map(static fn (array $row) => new static($row), static::query()->get());
     }
 
+    /** @param string|list<string> $relations @return list<static> */
+    public static function with(string|array $relations): array
+    {
+        $models = static::all();
+        foreach ((array) $relations as $relation) {
+            static::eagerLoad($models, (string) $relation);
+        }
+        return $models;
+    }
+
     /** @param array<string, mixed> $data */
     public static function create(array $data): static
     {
@@ -97,6 +107,11 @@ abstract class Model implements ArrayAccess, JsonSerializable
     public function getKey(): mixed
     {
         return $this->attributes[$this->primaryKey] ?? null;
+    }
+
+    public function setRelation(string $name, mixed $value): void
+    {
+        $this->attributes[$name] = $value;
     }
 
     /** @param class-string<Model> $related */
@@ -167,5 +182,52 @@ abstract class Model implements ArrayAccess, JsonSerializable
         }
 
         return array_intersect_key($data, array_flip($this->fillable));
+    }
+
+    /** @param list<static> $models */
+    private static function eagerLoad(array $models, string $name): void
+    {
+        if ($models === [] || $name === '' || !is_callable([$models[0], $name])) {
+            throw new RuntimeException('Unknown model relation: ' . $name);
+        }
+
+        $relations = array_map(static fn (Model $model): mixed => $model->{$name}(), $models);
+        $first = $relations[0];
+
+        if ($first instanceof HasMany) {
+            $values = array_values(array_unique(array_filter(
+                array_map(static fn (HasMany $relation): mixed => $relation->localValue(), $relations),
+                static fn (mixed $value): bool => $value !== null
+            ), SORT_REGULAR));
+            $class = $first->relatedClass();
+            $rows = $values === [] ? [] : $class::query()->whereIn($first->foreignKey(), $values)->get();
+            $grouped = [];
+            foreach ($rows as $row) {
+                $grouped[(string) ($row[$first->foreignKey()] ?? '')][] = new $class($row);
+            }
+            foreach ($models as $index => $model) {
+                $model->setRelation($name, $grouped[(string) $relations[$index]->localValue()] ?? []);
+            }
+            return;
+        }
+
+        if ($first instanceof BelongsTo) {
+            $values = array_values(array_unique(array_filter(
+                array_map(static fn (BelongsTo $relation): mixed => $relation->foreignValue(), $relations),
+                static fn (mixed $value): bool => $value !== null
+            ), SORT_REGULAR));
+            $class = $first->relatedClass();
+            $rows = $values === [] ? [] : $class::query()->whereIn($first->ownerKey(), $values)->get();
+            $indexed = [];
+            foreach ($rows as $row) {
+                $indexed[(string) ($row[$first->ownerKey()] ?? '')] = new $class($row);
+            }
+            foreach ($models as $index => $model) {
+                $model->setRelation($name, $indexed[(string) $relations[$index]->foreignValue()] ?? null);
+            }
+            return;
+        }
+
+        throw new RuntimeException('Relation must return HasMany or BelongsTo: ' . $name);
     }
 }

@@ -13,7 +13,7 @@ final class Schedule
 
     public function call(callable $callback): ScheduledTask
     {
-        $task = new ScheduledTask($callback);
+        $task = new ScheduledTask($callback, 'task-' . count($this->tasks));
         $this->tasks[] = $task;
         return $task;
     }
@@ -28,8 +28,9 @@ final class Schedule
                 continue;
             }
 
-            $task->run();
-            $count++;
+            if ($task->run($now)) {
+                $count++;
+            }
         }
 
         return $count;

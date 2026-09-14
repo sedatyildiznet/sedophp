@@ -14,7 +14,10 @@ final class ScheduledTask
     private ?int $lockSeconds = null;
     private string $description = 'scheduled task';
 
-    public function __construct(private readonly mixed $callback)
+    public function __construct(
+        private readonly mixed $callback,
+        private readonly string $identity = 'task-0',
+    )
     {
     }
 
@@ -81,19 +84,29 @@ final class ScheduledTask
         return true;
     }
 
-    public function run(): void
+    public function run(?DateTimeImmutable $now = null): bool
     {
-        $lockKey = 'schedule:' . hash('sha256', $this->description);
+        $now ??= new DateTimeImmutable('now');
+        $lockKey = 'schedule:' . hash('sha256', $this->identity . '|' . $this->description);
         if ($this->lockSeconds !== null && Cache::has($lockKey)) {
-            return;
+            return false;
         }
 
-        if ($this->lockSeconds !== null) {
-            Cache::put($lockKey, true, $this->lockSeconds);
+        if ($this->lockSeconds !== null && !Cache::add($lockKey, true, $this->lockSeconds)) {
+            return false;
+        }
+
+        $runKey = $lockKey . ':run:' . $now->format('YmdHi');
+        if (!Cache::add($runKey, true, 120)) {
+            if ($this->lockSeconds !== null) {
+                Cache::forget($lockKey);
+            }
+            return false;
         }
 
         try {
             ($this->callback)();
+            return true;
         } finally {
             if ($this->lockSeconds !== null) {
                 Cache::forget($lockKey);

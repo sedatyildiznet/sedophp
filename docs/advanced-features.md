@@ -38,9 +38,12 @@ final class Post extends Model
 
 $posts = $user->posts()->get();
 $owner = $post->user()->first();
+
+// Fetch all users and their posts in two queries.
+$users = User::with('posts');
 ~~~
 
-Both relation objects expose query() for additional query-builder constraints.
+Both relation objects expose query() for additional query-builder constraints. `with()` accepts one relation name or a list of relation names and includes hydrated relations in model arrays/JSON.
 
 ## Cache
 
@@ -65,6 +68,14 @@ get('/api/search', 'SearchController@index')
 ~~~
 
 The first parameter is the allowed attempt count and the second is the decay window in seconds. Responses include rate-limit headers and return HTTP 429 after the limit is exceeded.
+
+Forwarded client IP headers are ignored unless the direct peer is explicitly trusted:
+
+~~~dotenv
+TRUSTED_PROXIES=127.0.0.1,10.0.0.0/8
+~~~
+
+Use only proxy IPs or CIDR ranges you control. When configured, Cloudflare's `CF-Connecting-IP` and standard `X-Forwarded-For` are supported without allowing clients to spoof their address directly.
 
 ## Database API tokens
 
@@ -96,6 +107,7 @@ get('/api/me', function () {
 ~~~
 
 Only a SHA-256 hash of the generated token is stored in the database.
+Tokens whose user no longer exists are rejected and removed automatically.
 
 ## JWT
 
@@ -115,7 +127,7 @@ get('/api/private', function () {
 })->middleware('jwt');
 ~~~
 
-JWT uses HS256 and validates the signature, exp, nbf and the configured issuer.
+JWT uses HS256 and requires a valid `exp` claim. When `JWT_ISSUER` is configured, a matching `iss` claim is also required.
 
 ## Mail
 
@@ -166,6 +178,20 @@ php sedo queue:work 20
 ~~~
 
 Jobs track attempts, retry with a short backoff and retain failed rows for inspection.
+Stale reservations left by a crashed worker are released automatically. The timeout must be longer than the longest expected job:
+
+~~~dotenv
+QUEUE_RETRY_AFTER=300
+~~~
+
+Failed-job operations:
+
+~~~bash
+php sedo queue:failed
+php sedo queue:retry 15
+php sedo queue:retry all
+php sedo queue:flush
+~~~
 
 ## Scheduler
 
@@ -188,3 +214,4 @@ php /home/USER/public_html/sedo schedule:run
 ~~~
 
 No permanent scheduler daemon is required.
+Each task is executed at most once per due minute, and overlap-skipped tasks are not counted as completed.

@@ -10,6 +10,14 @@ use Throwable;
 
 final class Queue
 {
+    private static int $retryAfter = 300;
+
+    /** @param array<string,mixed> $config */
+    public static function configure(array $config): void
+    {
+        self::$retryAfter = max(30, (int) ($config['retry_after'] ?? 300));
+    }
+
     /** @param class-string<JobInterface> $job @param array<string,mixed> $payload */
     public static function push(
         string $job,
@@ -37,6 +45,7 @@ final class Queue
     public static function work(int $limit = 10): int
     {
         $limit = max(1, $limit);
+        self::releaseStaleReservations();
         $rows = Database::table('jobs')
             ->whereNull('reserved_at')
             ->whereNull('failed_at')
@@ -53,6 +62,46 @@ final class Queue
         }
 
         return $processed;
+    }
+
+    public static function releaseStaleReservations(): int
+    {
+        return Database::table('jobs')
+            ->whereNotNull('reserved_at')
+            ->whereNull('failed_at')
+            ->where('reserved_at', '<=', gmdate('Y-m-d H:i:s', time() - self::$retryAfter))
+            ->update(['reserved_at' => null]);
+    }
+
+    /** @return list<array<string,mixed>> */
+    public static function failed(int $limit = 50): array
+    {
+        return Database::table('jobs')->whereNotNull('failed_at')->orderBy('id', 'desc')->limit(max(1, $limit))->get();
+    }
+
+    public static function retryFailed(int|string|null $id = null): int
+    {
+        $query = Database::table('jobs')->whereNotNull('failed_at');
+        if ($id !== null) {
+            $query->where('id', $id);
+        }
+        return $query->update([
+            'attempts' => 0,
+            'reserved_at' => null,
+            'failed_at' => null,
+            'last_error' => null,
+            'available_at' => gmdate('Y-m-d H:i:s'),
+        ]);
+    }
+
+    public static function flushFailed(): int
+    {
+        $rows = Database::table('jobs')->whereNotNull('failed_at')->select('id')->get();
+        $deleted = 0;
+        foreach ($rows as $row) {
+            $deleted += Database::table('jobs')->where('id', $row['id'])->delete();
+        }
+        return $deleted;
     }
 
     /** @param array<string,mixed> $row */

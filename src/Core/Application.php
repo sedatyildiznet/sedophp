@@ -16,6 +16,7 @@ use SedoPHP\Middleware\CsrfMiddleware;
 use SedoPHP\Middleware\GuestMiddleware;
 use SedoPHP\Middleware\JwtMiddleware;
 use SedoPHP\Middleware\RateLimitMiddleware;
+use SedoPHP\Queue\Queue;
 use SedoPHP\Routing\Router;
 use SedoPHP\Security\Jwt;
 use SedoPHP\Session\Session;
@@ -40,7 +41,9 @@ final class Application
 
         Session::configure((array) Config::get('session', []));
         Session::start();
+        Request::configure((array) Config::get('http', []));
         Database::configure((array) Config::get('database', []));
+        Queue::configure((array) Config::get('queue', []));
         Auth::configure((array) Config::get('auth', []));
         Jwt::configure((array) Config::get('auth', []));
         Cache::configure((array) Config::get('cache', []), $this->basePath);
