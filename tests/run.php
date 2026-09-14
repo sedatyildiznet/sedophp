@@ -250,9 +250,12 @@ if ($hasDatabase) {
     $runner = new MigrationRunner(dirname(__DIR__) . '/database/migrations');
 
     $test('Migrations run, rollback and rerun on the configured database', static function () use ($expect, $runner): void {
-        $expect($runner->migrate() === 1);
+        $migrationCount = count(glob(dirname(__DIR__) . '/database/migrations/*.php') ?: []);
+
+        $expect($migrationCount >= 1);
+        $expect($runner->migrate() === $migrationCount);
         $expect(Database::table('users')->count() === 0);
-        $expect($runner->rollback() === 1);
+        $expect($runner->rollback() === $migrationCount);
 
         $missing = false;
         try {
@@ -262,7 +265,7 @@ if ($hasDatabase) {
         }
         $expect($missing);
 
-        $expect($runner->migrate() === 1);
+        $expect($runner->migrate() === $migrationCount);
     });
 
     $test('Query builder insert, NULL, IN, value, pluck and exists', static function () use ($expect): void {

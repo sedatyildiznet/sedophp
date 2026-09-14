@@ -5,7 +5,9 @@ declare(strict_types=1);
 
 use SedoPHP\Database\Database;
 use SedoPHP\Database\MigrationRunner;
+use SedoPHP\Queue\Queue;
 use SedoPHP\Routing\Router;
+use SedoPHP\Scheduling\Schedule;
 
 /** @var \SedoPHP\Core\Application $app */
 $app = require __DIR__ . '/bootstrap/app.php';
@@ -145,6 +147,22 @@ switch ($command) {
         echo $count === 0 ? "Nothing to roll back.\n" : "Rolled back {$count} file(s).\n";
         break;
 
+    case 'queue:work':
+        $limit = max(1, (int) ($name ?? 10));
+        $count = Queue::work($limit);
+        echo "Processed {$count} queued job(s).\n";
+        break;
+
+    case 'schedule:run':
+        $schedule = new Schedule();
+        $scheduleFile = $app->path('routes/schedule.php');
+        if (is_file($scheduleFile)) {
+            require $scheduleFile;
+        }
+        $count = $schedule->runDue();
+        echo "Ran {$count} scheduled task(s).\n";
+        break;
+
     case 'route:list':
         $routes = $app->router()->routes();
         if ($routes === []) {
@@ -180,6 +198,8 @@ SedoPHP CLI
   php sedo make:migration create_posts
   php sedo migrate
   php sedo migrate:rollback
+  php sedo queue:work [10]
+  php sedo schedule:run
   php sedo route:list
   php sedo doctor
   php sedo version

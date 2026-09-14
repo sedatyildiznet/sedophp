@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased — 0.2.0 development
+
+### Database and models
+
+- query-builder pagination with metadata
+- hasMany and belongsTo model relations with hydrated model results
+- database-backed API token and queue migrations
+
+### Security and APIs
+
+- parameterized middleware
+- file-backed rate limiting and throttle middleware
+- hashed database API tokens with abilities and revocation
+- HS256 JWT issuing/validation and jwt middleware
+- request attributes for token/JWT context
+
+### Application services
+
+- file cache with TTL, remember, forget, clear and atomic increment
+- log, native PHP mail and SMTP mail drivers
+- database queue with retry/failure tracking
+- shared-hosting-friendly scheduler with overlap protection
+- queue:work and schedule:run CLI commands
+
 ## 0.1.0 — 2026-09-14
 
 First stable SedoPHP release.
