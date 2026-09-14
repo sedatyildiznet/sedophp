@@ -38,12 +38,46 @@ final class ErrorHandler
                 return;
             }
 
+            if (self::expectsJson()) {
+                $message = $debug || $exception instanceof HttpException
+                    ? $exception->getMessage()
+                    : 'Server error.';
+
+                $payload = ['error' => $message];
+
+                if ($debug) {
+                    $payload['exception'] = $exception::class;
+                    $payload['file'] = $exception->getFile();
+                    $payload['line'] = $exception->getLine();
+                    $payload['trace'] = $exception->getTraceAsString();
+                }
+
+                $response = Response::json($payload, $status);
+                foreach ($headers as $name => $value) {
+                    $response = $response->withHeader((string) $name, (string) $value);
+                }
+                $response->send();
+                return;
+            }
+
             $body = $debug
                 ? self::debugPage($exception, $status)
                 : self::productionPage($status, $exception instanceof HttpException ? $exception->getMessage() : '');
 
             (new Response($body, $status, array_merge(['Content-Type' => 'text/html; charset=UTF-8'], $headers)))->send();
         });
+    }
+
+    private static function expectsJson(): bool
+    {
+        $accept = strtolower((string) ($_SERVER['HTTP_ACCEPT'] ?? ''));
+        if (str_contains($accept, 'application/json')) {
+            return true;
+        }
+
+        $uri = (string) ($_SERVER['REQUEST_URI'] ?? '/');
+        $path = parse_url($uri, PHP_URL_PATH);
+        return is_string($path) && str_starts_with($path, '/api/');
     }
 
     private static function debugPage(Throwable $exception, int $status): string
