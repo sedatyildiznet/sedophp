@@ -73,6 +73,14 @@ if (!function_exists('delete')) {
     function delete(string $pattern, mixed $action): Route { return app()->router()->delete($pattern, $action); }
 }
 
+if (!function_exists('route_group')) {
+    /** @param array{prefix?:string,middleware?:string|list<string>} $attributes */
+    function route_group(array $attributes, callable $callback): void
+    {
+        app()->router()->group($attributes, $callback);
+    }
+}
+
 if (!function_exists('view')) {
     /** @param array<string, mixed> $data */
     function view(string $name, array $data = [], int $status = 200): Response { return View::render($name, $data, $status); }
