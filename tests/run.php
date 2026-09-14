@@ -16,29 +16,9 @@ use SedoPHP\Session\Session;
 use SedoPHP\Validation\Validator;
 use SedoPHP\View\View;
 
-require dirname(__DIR__) . '/bootstrap/autoload.php';
+[$suite, $test, $expect] = require __DIR__ . '/Support/bootstrap.php';
 
 ob_start();
-
-$passed = 0;
-$failed = 0;
-
-$test = static function (string $name, callable $callback) use (&$passed, &$failed): void {
-    try {
-        $callback();
-        $passed++;
-        echo "[PASS] {$name}\n";
-    } catch (Throwable $e) {
-        $failed++;
-        echo "[FAIL] {$name}: {$e->getMessage()}\n";
-    }
-};
-
-$expect = static function (bool $condition, string $message = 'Expectation failed.'): void {
-    if (!$condition) {
-        throw new RuntimeException($message);
-    }
-};
 
 Session::configure(['name' => 'sedophp_test_' . getmypid(), 'secure' => false, 'same_site' => 'Lax']);
 Session::start();
@@ -404,6 +384,6 @@ if ($hasDatabase) {
     echo "[SKIP] Database tests: requested PDO test driver is unavailable.\n";
 }
 
-echo "\n{$passed} passed, {$failed} failed.\n";
+$code = $suite->finish();
 ob_end_flush();
-exit($failed === 0 ? 0 : 1);
+exit($code);
