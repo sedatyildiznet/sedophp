@@ -8,12 +8,13 @@ use RuntimeException;
 use SedoPHP\Http\Request;
 use SedoPHP\Http\Response;
 use SedoPHP\Middleware\MiddlewareInterface;
+use SedoPHP\Middleware\ParameterizedMiddlewareInterface;
 
 final class Router
 {
     /** @var list<Route> */
     private array $routes = [];
-    /** @var array<string, class-string<MiddlewareInterface>|callable> */
+    /** @var array<string, class-string<MiddlewareInterface>|class-string<ParameterizedMiddlewareInterface>|callable> */
     private array $aliases = [];
 
     public function get(string $pattern, mixed $action): Route { return $this->add('GET', $pattern, $action); }
@@ -141,8 +142,13 @@ final class Router
         throw new RuntimeException('Invalid route action. Use a closure, callable, or Controller@method.');
     }
 
-    private function runMiddleware(string $name, Request $request, callable $next): Response
+    private function runMiddleware(string $definition, Request $request, callable $next): Response
     {
+        [$name, $parameterText] = array_pad(explode(':', $definition, 2), 2, null);
+        $parameters = $parameterText === null || trim($parameterText) === ''
+            ? []
+            : array_values(array_map('trim', explode(',', $parameterText)));
+
         if (!array_key_exists($name, $this->aliases)) {
             throw new RuntimeException("Middleware alias not found: {$name}");
         }
@@ -150,6 +156,14 @@ final class Router
         $middleware = $this->aliases[$name];
         if (is_string($middleware)) {
             $middleware = new $middleware();
+        }
+
+        if ($middleware instanceof ParameterizedMiddlewareInterface) {
+            return $middleware->handle($request, $next, $parameters);
+        }
+
+        if ($parameters !== []) {
+            throw new RuntimeException("Middleware does not accept parameters: {$name}");
         }
 
         if ($middleware instanceof MiddlewareInterface) {

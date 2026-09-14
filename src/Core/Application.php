@@ -6,12 +6,17 @@ namespace SedoPHP\Core;
 
 use RuntimeException;
 use SedoPHP\Auth\Auth;
+use SedoPHP\Cache\Cache;
 use SedoPHP\Database\Database;
 use SedoPHP\Http\Request;
+use SedoPHP\Middleware\ApiTokenMiddleware;
 use SedoPHP\Middleware\AuthMiddleware;
 use SedoPHP\Middleware\CsrfMiddleware;
 use SedoPHP\Middleware\GuestMiddleware;
+use SedoPHP\Middleware\JwtMiddleware;
+use SedoPHP\Middleware\RateLimitMiddleware;
 use SedoPHP\Routing\Router;
+use SedoPHP\Security\Jwt;
 use SedoPHP\Session\Session;
 use SedoPHP\View\View;
 
@@ -36,12 +41,17 @@ final class Application
         Session::start();
         Database::configure((array) Config::get('database', []));
         Auth::configure((array) Config::get('auth', []));
+        Jwt::configure((array) Config::get('auth', []));
+        Cache::configure((array) Config::get('cache', []), $this->basePath);
         View::configure($this->path('app/Views'));
 
         $this->router = new Router();
         $this->router->alias('auth', AuthMiddleware::class);
         $this->router->alias('guest', GuestMiddleware::class);
         $this->router->alias('csrf', CsrfMiddleware::class);
+        $this->router->alias('throttle', RateLimitMiddleware::class);
+        $this->router->alias('token', ApiTokenMiddleware::class);
+        $this->router->alias('jwt', JwtMiddleware::class);
 
         foreach ((array) Config::get('middleware.aliases', []) as $name => $middleware) {
             if (is_string($name) && is_string($middleware)) {

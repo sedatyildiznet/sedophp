@@ -8,7 +8,14 @@ use JsonException;
 
 final class Request
 {
-    /** @param array<string, mixed> $query @param array<string, mixed> $body @param array<string, mixed> $files @param array<string, mixed> $server @param array<string, string> $headers */
+    /**
+     * @param array<string, mixed> $query
+     * @param array<string, mixed> $body
+     * @param array<string, mixed> $files
+     * @param array<string, mixed> $server
+     * @param array<string, string> $headers
+     * @param array<string, mixed> $attributes
+     */
     public function __construct(
         private string $method,
         private string $path,
@@ -17,6 +24,7 @@ final class Request
         private array $files = [],
         private array $server = [],
         private array $headers = [],
+        private array $attributes = [],
     ) {
         $this->method = strtoupper($this->method);
         $this->path = self::normalizePath($this->path);
@@ -28,7 +36,6 @@ final class Request
         $headers = self::captureHeaders($_SERVER);
         $contentType = strtolower($headers['content-type'] ?? '');
         $body = $_POST;
-        $raw = '';
 
         if (str_contains($contentType, 'application/json')) {
             $raw = (string) file_get_contents('php://input');
@@ -99,15 +106,8 @@ final class Request
         return new self($method, (string) ($parts['path'] ?? '/'), $query, $body, [], [], $normalizedHeaders);
     }
 
-    public function method(): string
-    {
-        return $this->method;
-    }
-
-    public function path(): string
-    {
-        return $this->path;
-    }
+    public function method(): string { return $this->method; }
+    public function path(): string { return $this->path; }
 
     public function input(?string $key = null, mixed $default = null): mixed
     {
@@ -145,6 +145,16 @@ final class Request
     public function header(string $key, mixed $default = null): mixed
     {
         return $this->headers[strtolower($key)] ?? $default;
+    }
+
+    public function attribute(string $key, mixed $default = null): mixed
+    {
+        return $this->attributes[$key] ?? $default;
+    }
+
+    public function setAttribute(string $key, mixed $value): void
+    {
+        $this->attributes[$key] = $value;
     }
 
     public function isJson(): bool
