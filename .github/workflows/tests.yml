@@ -41,7 +41,7 @@ jobs:
           MARIADB_ROOT_PASSWORD: root
           MARIADB_DATABASE: sedophp
         ports:
-          - 3306/tcp
+          - 3306:3306
         options: >-
           --health-cmd="healthcheck.sh --connect --innodb_initialized"
           --health-interval=5s
@@ -50,7 +50,7 @@ jobs:
     env:
       TEST_DB_DRIVER: mysql
       TEST_DB_HOST: 127.0.0.1
-      TEST_DB_PORT: ${{ job.services.mariadb.ports[3306] }}
+      TEST_DB_PORT: 3306
       TEST_DB_NAME: sedophp
       TEST_DB_USER: root
       TEST_DB_PASS: root
