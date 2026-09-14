@@ -53,4 +53,9 @@ final class HasMany
     {
         return $this->query()->count();
     }
+
+    /** @return class-string<T> */
+    public function relatedClass(): string { return $this->related; }
+    public function foreignKey(): string { return $this->foreignKey; }
+    public function localValue(): mixed { return $this->localValue; }
 }

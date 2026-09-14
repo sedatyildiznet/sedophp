@@ -58,6 +58,21 @@ final class ApiToken
             return null;
         }
 
+        $userId = $row['user_id'] ?? null;
+        if ($userId === null) {
+            Database::table(self::table())->where('id', $row['id'])->delete();
+            return null;
+        }
+
+        $userExists = Database::table((string) Config::get('auth.table', 'users'))
+            ->where((string) Config::get('auth.id', 'id'), $userId)
+            ->exists();
+
+        if (!$userExists) {
+            Database::table(self::table())->where('id', $row['id'])->delete();
+            return null;
+        }
+
         Database::table(self::table())
             ->where('id', $row['id'])
             ->update(['last_used_at' => gmdate('Y-m-d H:i:s')]);

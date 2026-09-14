@@ -1,28 +1,46 @@
 # Changelog
 
-## Unreleased — 0.2.0 development
+## 0.2.0 — 2026-09-14
 
 ### Database and models
 
 - query-builder pagination with metadata
-- hasMany and belongsTo model relations with hydrated model results
+- joins, left/right joins, grouping and HAVING support
+- grouped pagination/count support
+- hasMany and belongsTo model relations with hydrated results and eager loading
+- opt-in model casts and automatic timestamps
+- portable Schema/Blueprint migration builder for MySQL/MariaDB and SQLite
+- backward-compatible plain-PDO migrations
 - database-backed API token and queue migrations
 
-### Security and APIs
+### Routing, security and APIs
 
+- nested route groups with prefixes and group middleware
+- global middleware pipeline covering normal, 404, 405 and OPTIONS responses
+- dedicated CORS and security-header middleware
+- JSON-aware global error responses for APIs
+- nested dot-path and wildcard-array validation
 - parameterized middleware
 - file-backed rate limiting and throttle middleware
 - hashed database API tokens with abilities and revocation
 - HS256 JWT issuing/validation and jwt middleware
 - request attributes for token/JWT context
+- strict JWT expiry/issuer validation and orphaned API-token rejection
+- rotating JWT refresh tokens and cache-backed revocation
+- trusted proxy/CIDR support for safe client IP rate limiting
+- configurable CORS and secure response headers
 
 ### Application services
 
+- shared reusable test harness and dedicated 0.2 release regression suite
 - file cache with TTL, remember, forget, clear and atomic increment
 - log, native PHP mail and SMTP mail drivers
-- database queue with retry/failure tracking
-- shared-hosting-friendly scheduler with overlap protection
-- queue:work and schedule:run CLI commands
+- mail CC, BCC, attachments and socket-level SMTP integration tests
+- database queue with stale-worker recovery and failed-job operations
+- named queues with per-job backoff and timeout limits
+- shared-hosting-friendly scheduler with overlap and duplicate-run protection
+- cron expressions and per-task timezones
+- queue worker, failed-job and scheduler CLI commands
 
 ## 0.1.0 — 2026-09-14
 

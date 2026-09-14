@@ -18,13 +18,14 @@ final class Mailer
         self::$config = $config;
     }
 
-    /** @param string|list<string> $to @param array<string,string> $headers */
+    /** @param string|list<string> $to @param array<string,string> $headers @param array<string,mixed> $options */
     public static function send(
         string|array $to,
         string $subject,
         string $html,
         ?string $text = null,
         array $headers = [],
+        array $options = [],
     ): bool {
         $recipients = is_array($to) ? array_values($to) : [$to];
         $recipients = array_values(array_filter(array_map('trim', $recipients)));
@@ -39,13 +40,17 @@ final class Mailer
             }
         }
 
+        $cc = self::recipients($options['cc'] ?? []);
+        $bcc = self::recipients($options['bcc'] ?? []);
+        $attachments = (array) ($options['attachments'] ?? []);
+
         self::assertHeaderSafe($subject);
-        $message = self::buildMessage($recipients, $subject, $html, $text, $headers);
+        $message = self::buildMessage($recipients, $subject, $html, $text, $headers, $cc, $attachments);
         $driver = strtolower((string) (self::$config['driver'] ?? 'log'));
 
         return match ($driver) {
-            'smtp' => self::sendSmtp($recipients, $message),
-            'mail' => self::sendNative($recipients, $subject, $html, $text, $headers),
+            'smtp' => self::sendSmtp(array_values(array_unique(array_merge($recipients, $cc, $bcc))), $message),
+            'mail' => self::sendNative($recipients, $subject, $html, $text, $headers, $cc, $bcc, $attachments),
             'log' => self::sendLog($recipients, $subject),
             default => throw new RuntimeException("Unsupported mail driver: {$driver}"),
         };
@@ -61,16 +66,21 @@ final class Mailer
         return true;
     }
 
-    /** @param list<string> $recipients @param array<string,string> $headers */
+    /** @param list<string> $recipients @param array<string,string> $headers @param list<string> $cc @param list<string> $bcc @param array<int,mixed> $attachments */
     private static function sendNative(
         array $recipients,
         string $subject,
         string $html,
         ?string $text,
         array $headers,
+        array $cc,
+        array $bcc,
+        array $attachments,
     ): bool {
-        [$body, $headerLines] = self::bodyAndHeaders($html, $text, $headers);
+        [$body, $headerLines] = self::bodyAndHeaders($html, $text, $headers, $attachments);
         $headerLines[] = self::fromHeader();
+        if ($cc !== []) { $headerLines[] = 'Cc: ' . implode(', ', $cc); }
+        if ($bcc !== []) { $headerLines[] = 'Bcc: ' . implode(', ', $bcc); }
 
         return mail(
             implode(', ', $recipients),
@@ -139,17 +149,20 @@ final class Mailer
         }
     }
 
-    /** @param list<string> $recipients @param array<string,string> $headers */
+    /** @param list<string> $recipients @param array<string,string> $headers @param list<string> $cc @param array<int,mixed> $attachments */
     private static function buildMessage(
         array $recipients,
         string $subject,
         string $html,
         ?string $text,
         array $headers,
+        array $cc,
+        array $attachments,
     ): string {
-        [$body, $headerLines] = self::bodyAndHeaders($html, $text, $headers);
+        [$body, $headerLines] = self::bodyAndHeaders($html, $text, $headers, $attachments);
         $headerLines[] = self::fromHeader();
         $headerLines[] = 'To: ' . implode(', ', $recipients);
+        if ($cc !== []) { $headerLines[] = 'Cc: ' . implode(', ', $cc); }
         $headerLines[] = 'Subject: ' . $subject;
         $headerLines[] = 'Date: ' . date(DATE_RFC2822);
         $headerLines[] = 'Message-ID: <' . bin2hex(random_bytes(12)) . '@' . self::hostname() . '>';
@@ -157,8 +170,8 @@ final class Mailer
         return implode("\r\n", $headerLines) . "\r\n\r\n" . $body;
     }
 
-    /** @param array<string,string> $headers @return array{0:string,1:list<string>} */
-    private static function bodyAndHeaders(string $html, ?string $text, array $headers): array
+    /** @param array<string,string> $headers @param array<int,mixed> $attachments @return array{0:string,1:list<string>} */
+    private static function bodyAndHeaders(string $html, ?string $text, array $headers, array $attachments = []): array
     {
         $headerLines = ['MIME-Version: 1.0'];
 
@@ -168,24 +181,62 @@ final class Mailer
             $headerLines[] = $name . ': ' . $value;
         }
 
-        if ($text === null) {
+        if ($attachments === [] && $text === null) {
             $headerLines[] = 'Content-Type: text/html; charset=UTF-8';
             $headerLines[] = 'Content-Transfer-Encoding: 8bit';
             return [$html, $headerLines];
         }
 
-        $boundary = 'sedophp_' . bin2hex(random_bytes(12));
-        $headerLines[] = 'Content-Type: multipart/alternative; boundary="' . $boundary . '"';
-
-        $body = '--' . $boundary . "\r\n"
+        $alternativeBoundary = 'sedophp_alt_' . bin2hex(random_bytes(12));
+        $alternative = '--' . $alternativeBoundary . "\r\n"
             . "Content-Type: text/plain; charset=UTF-8\r\n\r\n"
-            . $text . "\r\n"
-            . '--' . $boundary . "\r\n"
+            . ($text ?? strip_tags($html)) . "\r\n"
+            . '--' . $alternativeBoundary . "\r\n"
             . "Content-Type: text/html; charset=UTF-8\r\n\r\n"
             . $html . "\r\n"
-            . '--' . $boundary . "--\r\n";
+            . '--' . $alternativeBoundary . "--\r\n";
+
+        if ($attachments === []) {
+            $headerLines[] = 'Content-Type: multipart/alternative; boundary="' . $alternativeBoundary . '"';
+            return [$alternative, $headerLines];
+        }
+
+        $mixedBoundary = 'sedophp_mix_' . bin2hex(random_bytes(12));
+        $headerLines[] = 'Content-Type: multipart/mixed; boundary="' . $mixedBoundary . '"';
+        $body = '--' . $mixedBoundary . "\r\n"
+            . 'Content-Type: multipart/alternative; boundary="' . $alternativeBoundary . "\"\r\n\r\n"
+            . $alternative;
+
+        foreach ($attachments as $attachment) {
+            $path = is_array($attachment) ? (string) ($attachment['path'] ?? '') : (string) $attachment;
+            if (!is_file($path) || !is_readable($path)) {
+                throw new RuntimeException('Mail attachment is not readable: ' . $path);
+            }
+            $name = is_array($attachment) ? (string) ($attachment['name'] ?? basename($path)) : basename($path);
+            self::assertHeaderSafe($name);
+            $mime = is_array($attachment) ? (string) ($attachment['mime'] ?? '') : '';
+            $mime = $mime !== '' ? $mime : ((new \finfo(FILEINFO_MIME_TYPE))->file($path) ?: 'application/octet-stream');
+            $body .= "\r\n--{$mixedBoundary}\r\nContent-Type: {$mime}; name=\"" . addcslashes($name, '"\\') . "\"\r\n"
+                . "Content-Disposition: attachment; filename=\"" . addcslashes($name, '"\\') . "\"\r\n"
+                . "Content-Transfer-Encoding: base64\r\n\r\n"
+                . chunk_split(base64_encode((string) file_get_contents($path)), 76, "\r\n");
+        }
+        $body .= '--' . $mixedBoundary . "--\r\n";
 
         return [$body, $headerLines];
+    }
+
+    /** @return list<string> */
+    private static function recipients(mixed $value): array
+    {
+        $items = is_array($value) ? $value : ($value === '' ? [] : [$value]);
+        $items = array_values(array_filter(array_map('trim', array_map('strval', $items))));
+        foreach ($items as $email) {
+            if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                throw new RuntimeException('Invalid recipient email: ' . $email);
+            }
+        }
+        return $items;
     }
 
     private static function fromHeader(): string

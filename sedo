@@ -49,17 +49,26 @@ $writeMigration = static function (?string $name) use ($app): void {
     $slug = trim($slug, '_');
     $file = $app->path('database/migrations/' . date('Ymd_His') . '_' . $slug . '.php');
 
-    $content = <<<'PHP'
+    $table = str_starts_with($slug, 'create_') ? substr($slug, 7) : $slug;
+    $table = $table !== '' ? $table : 'table_name';
+
+    $content = <<<PHP
 <?php
 
 declare(strict_types=1);
 
+use SedoPHP\\Database\\Blueprint;
+use SedoPHP\\Database\\Schema;
+
 return [
-    'up' => static function (PDO $db): void {
-        // Write plain SQL here.
+    'up' => static function (): void {
+        Schema::create('{$table}', static function (Blueprint \$table): void {
+            \$table->id();
+            \$table->timestamps();
+        });
     },
-    'down' => static function (PDO $db): void {
-        // Reverse the migration here.
+    'down' => static function (): void {
+        Schema::dropIfExists('{$table}');
     },
 ];
 
@@ -149,8 +158,34 @@ switch ($command) {
 
     case 'queue:work':
         $limit = max(1, (int) ($name ?? 10));
-        $count = Queue::work($limit);
+        $queueName = $argv[3] ?? 'default';
+        $count = Queue::work($limit, $queueName);
         echo "Processed {$count} queued job(s).\n";
+        break;
+
+    case 'queue:failed':
+        $rows = Queue::failed(max(1, (int) ($name ?? 50)));
+        if ($rows === []) {
+            echo "No failed jobs.\n";
+            break;
+        }
+        echo str_pad('ID', 8) . str_pad('JOB', 50) . "FAILED AT\n";
+        foreach ($rows as $row) {
+            echo str_pad((string) ($row['id'] ?? ''), 8)
+                . str_pad(substr((string) ($row['job'] ?? ''), 0, 48), 50)
+                . (string) ($row['failed_at'] ?? '') . "\n";
+        }
+        break;
+
+    case 'queue:retry':
+        $id = $name === null || $name === 'all' ? null : $name;
+        $count = Queue::retryFailed($id);
+        echo "Retried {$count} failed job(s).\n";
+        break;
+
+    case 'queue:flush':
+        $count = Queue::flushFailed();
+        echo "Deleted {$count} failed job(s).\n";
         break;
 
     case 'schedule:run':
@@ -198,7 +233,10 @@ SedoPHP CLI
   php sedo make:migration create_posts
   php sedo migrate
   php sedo migrate:rollback
-  php sedo queue:work [10]
+  php sedo queue:work [10] [queue]
+  php sedo queue:failed [50]
+  php sedo queue:retry [id|all]
+  php sedo queue:flush
   php sedo schedule:run
   php sedo route:list
   php sedo doctor

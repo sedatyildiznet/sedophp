@@ -9,30 +9,45 @@ use SedoPHP\Http\UploadedFile;
 
 final class Validator
 {
-    /** @param array<string, mixed> $data @param array<string, string|array<int, string>> $rules @return array<string, list<string>> */
+    /**
+     * @param array<string, mixed> $data
+     * @param array<string, string|array<int, string>> $rules
+     * @return array<string, list<string>>
+     */
     public static function validate(array $data, array $rules): array
     {
         $errors = [];
 
-        foreach ($rules as $field => $definition) {
+        foreach ($rules as $pattern => $definition) {
             $fieldRules = is_array($definition) ? $definition : explode('|', $definition);
-            $value = $data[$field] ?? null;
-            $nullable = in_array('nullable', $fieldRules, true);
+            $matches = self::expand($data, (string) $pattern);
 
-            if ($nullable && self::isEmpty($value)) {
-                continue;
-            }
+            foreach ($matches as [$field, $value]) {
+                $nullable = in_array('nullable', $fieldRules, true);
 
-            foreach ($fieldRules as $rule) {
-                if ($rule === 'nullable') {
+                if ($nullable && self::isEmpty($value)) {
                     continue;
                 }
 
-                [$name, $parameter] = array_pad(explode(':', $rule, 2), 2, null);
-                $message = self::check($name, $parameter, $field, $value, $data, $fieldRules);
+                foreach ($fieldRules as $rule) {
+                    if ($rule === 'nullable') {
+                        continue;
+                    }
 
-                if ($message !== null) {
-                    $errors[$field][] = $message;
+                    [$name, $parameter] = array_pad(explode(':', $rule, 2), 2, null);
+                    $message = self::check(
+                        $name,
+                        $parameter,
+                        $field,
+                        (string) $pattern,
+                        $value,
+                        $data,
+                        $fieldRules,
+                    );
+
+                    if ($message !== null) {
+                        $errors[$field][] = $message;
+                    }
                 }
             }
         }
@@ -40,17 +55,24 @@ final class Validator
         return $errors;
     }
 
-    /** @param array<string, mixed> $data @param array<int, string> $fieldRules */
+    /**
+     * @param array<string, mixed> $data
+     * @param array<int, string> $fieldRules
+     */
     private static function check(
         string $rule,
         ?string $parameter,
         string $field,
+        string $pattern,
         mixed $value,
         array $data,
         array $fieldRules,
     ): ?string {
         $empty = self::isEmpty($value);
         $numericMode = in_array('numeric', $fieldRules, true) || in_array('integer', $fieldRules, true);
+
+        $reference = $parameter === null ? null : self::resolveReference($parameter, $pattern, $field);
+        $confirmedReference = $field . '_confirmation';
 
         return match ($rule) {
             'required' => $empty ? "{$field} is required." : null,
@@ -65,8 +87,8 @@ final class Validator
             'min' => !$empty && self::measure($value, $numericMode) < (float) $parameter ? "{$field} must be at least {$parameter}." : null,
             'max' => !$empty && self::measure($value, $numericMode) > (float) $parameter ? "{$field} may not be greater than {$parameter}." : null,
             'size' => !$empty && self::measure($value, $numericMode) !== (float) $parameter ? "{$field} must have size {$parameter}." : null,
-            'same' => ($data[$parameter ?? ''] ?? null) !== $value ? "{$field} must match {$parameter}." : null,
-            'confirmed' => ($data[$field . '_confirmation'] ?? null) !== $value ? "{$field} confirmation does not match." : null,
+            'same' => self::dataGet($data, (string) $reference) !== $value ? "{$field} must match {$reference}." : null,
+            'confirmed' => self::dataGet($data, $confirmedReference) !== $value ? "{$field} confirmation does not match." : null,
             'in' => !$empty && !in_array((string) $value, explode(',', (string) $parameter), true) ? "{$field} has an invalid value." : null,
             'regex' => !$empty && ($parameter === null || @preg_match($parameter, (string) $value) !== 1) ? "{$field} format is invalid." : null,
             'unique' => !$empty && self::databaseExists($parameter, $field, $value) ? "{$field} has already been taken." : null,
@@ -76,6 +98,89 @@ final class Validator
             'mimes' => !$empty && !self::validMimes($value, $parameter) ? "{$field} has an invalid file extension." : null,
             default => "Unknown validation rule: {$rule}.",
         };
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return list<array{0:string,1:mixed}>
+     */
+    private static function expand(array $data, string $pattern): array
+    {
+        if (!str_contains($pattern, '*')) {
+            return [[$pattern, self::dataGet($data, $pattern)]];
+        }
+
+        $results = [];
+        self::expandSegments($data, explode('.', $pattern), [], $results);
+        return $results;
+    }
+
+    /**
+     * @param list<string> $segments
+     * @param list<string> $path
+     * @param list<array{0:string,1:mixed}> $results
+     */
+    private static function expandSegments(mixed $current, array $segments, array $path, array &$results): void
+    {
+        if ($segments === []) {
+            $results[] = [implode('.', $path), $current];
+            return;
+        }
+
+        $segment = array_shift($segments);
+        if ($segment === '*') {
+            if (!is_array($current)) {
+                return;
+            }
+
+            foreach ($current as $key => $value) {
+                self::expandSegments($value, $segments, [...$path, (string) $key], $results);
+            }
+            return;
+        }
+
+        $next = is_array($current) && array_key_exists($segment, $current) ? $current[$segment] : null;
+        self::expandSegments($next, $segments, [...$path, $segment], $results);
+    }
+
+    /** @param array<string, mixed> $data */
+    private static function dataGet(array $data, string $path): mixed
+    {
+        if ($path === '') {
+            return null;
+        }
+
+        $value = $data;
+        foreach (explode('.', $path) as $segment) {
+            if (!is_array($value) || !array_key_exists($segment, $value)) {
+                return null;
+            }
+            $value = $value[$segment];
+        }
+
+        return $value;
+    }
+
+    private static function resolveReference(string $reference, string $pattern, string $field): string
+    {
+        if (!str_contains($reference, '*')) {
+            return $reference;
+        }
+
+        $patternSegments = explode('.', $pattern);
+        $fieldSegments = explode('.', $field);
+        $wildcards = [];
+
+        foreach ($patternSegments as $index => $segment) {
+            if ($segment === '*' && isset($fieldSegments[$index])) {
+                $wildcards[] = $fieldSegments[$index];
+            }
+        }
+
+        $offset = 0;
+        return preg_replace_callback('/\*/', static function () use (&$offset, $wildcards): string {
+            return $wildcards[$offset++] ?? '*';
+        }, $reference) ?? $reference;
     }
 
     private static function isEmpty(mixed $value): bool
@@ -115,10 +220,17 @@ final class Validator
 
     private static function databaseExists(?string $parameter, string $field, mixed $value): bool
     {
-        [$table, $column] = array_pad(explode(',', (string) $parameter, 2), 2, $field);
+        [$table, $column] = array_pad(explode(',', (string) $parameter, 2), 2, null);
+        $table = trim((string) $table);
 
         if ($table === '') {
             return false;
+        }
+
+        $column = trim((string) $column);
+        if ($column === '') {
+            $segments = explode('.', $field);
+            $column = (string) end($segments);
         }
 
         return Database::table($table)->where($column, $value)->exists();

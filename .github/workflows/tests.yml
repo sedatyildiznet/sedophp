@@ -29,7 +29,12 @@ jobs:
       - name: Lint
         run: php tools/lint.php
       - name: Test
-        run: composer test
+        run: |
+          php tests/fake_smtp_server.php /tmp/sedophp-smtp.eml &
+          SMTP_PID=$!
+          sleep 1
+          TEST_SMTP=1 TEST_SMTP_CAPTURE=/tmp/sedophp-smtp.eml composer test
+          wait $SMTP_PID
       - name: CLI and HTTP smoke
         if: matrix.php == '8.3'
         run: |
@@ -82,7 +87,12 @@ jobs:
       - name: Lint
         run: php tools/lint.php
       - name: Test including migrations
-        run: php tests/run.php
+        run: |
+          php tests/fake_smtp_server.php /tmp/sedophp-smtp.eml &
+          SMTP_PID=$!
+          sleep 1
+          TEST_SMTP=1 TEST_SMTP_CAPTURE=/tmp/sedophp-smtp.eml composer test
+          wait $SMTP_PID
       - name: Doctor against MariaDB
         run: |
           printf '%s\n'             'APP_ENV=production'             'APP_DEBUG=false'             'DB_DRIVER=mysql'             'DB_HOST=127.0.0.1'             'DB_PORT=3306'             'DB_NAME=sedophp'             'DB_USER=root'             'DB_PASS=root'             > .env

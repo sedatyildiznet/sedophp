@@ -38,4 +38,9 @@ final class BelongsTo
         $class = $this->related;
         return new $class($row);
     }
+
+    /** @return class-string<T> */
+    public function relatedClass(): string { return $this->related; }
+    public function ownerKey(): string { return $this->ownerKey; }
+    public function foreignValue(): mixed { return $this->foreignValue; }
 }

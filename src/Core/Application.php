@@ -13,11 +13,15 @@ use SedoPHP\Mail\Mailer;
 use SedoPHP\Middleware\ApiTokenMiddleware;
 use SedoPHP\Middleware\AuthMiddleware;
 use SedoPHP\Middleware\CsrfMiddleware;
+use SedoPHP\Middleware\CorsMiddleware;
 use SedoPHP\Middleware\GuestMiddleware;
 use SedoPHP\Middleware\JwtMiddleware;
 use SedoPHP\Middleware\RateLimitMiddleware;
+use SedoPHP\Middleware\SecurityHeadersMiddleware;
+use SedoPHP\Queue\Queue;
 use SedoPHP\Routing\Router;
 use SedoPHP\Security\Jwt;
+use SedoPHP\Security\HttpSecurity;
 use SedoPHP\Session\Session;
 use SedoPHP\View\View;
 
@@ -40,9 +44,12 @@ final class Application
 
         Session::configure((array) Config::get('session', []));
         Session::start();
+        Request::configure((array) Config::get('http', []));
         Database::configure((array) Config::get('database', []));
+        Queue::configure((array) Config::get('queue', []));
         Auth::configure((array) Config::get('auth', []));
         Jwt::configure((array) Config::get('auth', []));
+        HttpSecurity::configure((array) Config::get('security', []));
         Cache::configure((array) Config::get('cache', []), $this->basePath);
         Mailer::configure((array) Config::get('mail', []));
         View::configure($this->path('app/Views'));
@@ -51,13 +58,21 @@ final class Application
         $this->router->alias('auth', AuthMiddleware::class);
         $this->router->alias('guest', GuestMiddleware::class);
         $this->router->alias('csrf', CsrfMiddleware::class);
+        $this->router->alias('cors', CorsMiddleware::class);
         $this->router->alias('throttle', RateLimitMiddleware::class);
         $this->router->alias('token', ApiTokenMiddleware::class);
         $this->router->alias('jwt', JwtMiddleware::class);
+        $this->router->alias('security', SecurityHeadersMiddleware::class);
 
         foreach ((array) Config::get('middleware.aliases', []) as $name => $middleware) {
             if (is_string($name) && is_string($middleware)) {
                 $this->router->alias($name, $middleware);
+            }
+        }
+
+        foreach ((array) Config::get('middleware.global', ['cors', 'security']) as $middleware) {
+            if (is_string($middleware) && $middleware !== '') {
+                $this->router->middleware($middleware);
             }
         }
 
