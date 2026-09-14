@@ -1,15 +1,25 @@
 # Changelog
 
-## Unreleased — 0.2.0 development
+## 0.2.0 — 2026-09-14
 
 ### Database and models
 
 - query-builder pagination with metadata
+- joins, left/right joins, grouping and HAVING support
+- grouped pagination/count support
 - hasMany and belongsTo model relations with hydrated results and eager loading
+- opt-in model casts and automatic timestamps
+- portable Schema/Blueprint migration builder for MySQL/MariaDB and SQLite
+- backward-compatible plain-PDO migrations
 - database-backed API token and queue migrations
 
-### Security and APIs
+### Routing, security and APIs
 
+- nested route groups with prefixes and group middleware
+- global middleware pipeline covering normal, 404, 405 and OPTIONS responses
+- dedicated CORS and security-header middleware
+- JSON-aware global error responses for APIs
+- nested dot-path and wildcard-array validation
 - parameterized middleware
 - file-backed rate limiting and throttle middleware
 - hashed database API tokens with abilities and revocation
@@ -22,6 +32,7 @@
 
 ### Application services
 
+- shared reusable test harness and dedicated 0.2 release regression suite
 - file cache with TTL, remember, forget, clear and atomic increment
 - log, native PHP mail and SMTP mail drivers
 - mail CC, BCC, attachments and socket-level SMTP integration tests
