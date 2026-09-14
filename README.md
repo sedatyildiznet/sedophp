@@ -4,7 +4,7 @@
 
 SedoPHP is a small PHP 8.3+ framework designed around readable PHP, shared hosting, predictable behavior and almost no setup. It deliberately avoids a large dependency tree, template-language lock-in and hidden application magic.
 
-> Status: **0.1.0-dev** — stabilization preview. The public API may still change before 0.1.0 stable.
+> Status: **0.1.0 stable**
 
 ## What makes it different?
 
@@ -227,6 +227,8 @@ GitHub Actions currently checks:
 - uploads and validation
 - Composer metadata
 - Composer-free autoloading
+- shared-hosting protection rules
+- edge cases for relative SQLite paths, same-origin redirects and required validation
 
 ## Documentation
 
@@ -245,6 +247,12 @@ GitHub Actions currently checks:
 4. Shared hosting is a first-class target, not an afterthought.
 5. Native PHP and PDO remain reachable when the framework abstraction is not enough.
 6. Features do not enter the core merely because larger frameworks have them.
+
+## Stability
+
+SedoPHP 0.1.0 is the first stable release of the current public API. Patch releases may fix bugs and security issues without intentionally breaking documented 0.1 APIs.
+
+Provider-specific Apache, LiteSpeed and cPanel configurations can still differ. Use `php sedo doctor` and the shared-hosting verification checklist when deploying to a new provider.
 
 ## License
 

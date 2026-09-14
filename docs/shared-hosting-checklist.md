@@ -2,9 +2,7 @@
 
 The automated test suite checks routing, Composer-free autoloading, `.htaccess` safety rules, SQLite, MariaDB and the built-in PHP development server.
 
-A real hosting account must still be verified before a stable release because cPanel, LiteSpeed and Apache configurations differ between providers.
-
-Run this checklist on each target host:
+Real cPanel, LiteSpeed and Apache configurations differ between providers. Use this checklist when deploying SedoPHP to a new hosting environment.
 
 - [ ] PHP 8.3 or newer selected
 - [ ] `pdo_mysql` enabled
@@ -26,4 +24,4 @@ Run this checklist on each target host:
 - [ ] HTTPS session cookies work with `SESSION_SECURE=true`
 - [ ] production errors do not expose stack traces
 
-Do not mark a SedoPHP version stable until at least one Apache/cPanel-style host and one LiteSpeed/cPanel-style host have passed this checklist.
+Passing this checklist on a new provider confirms provider-specific deployment behavior; it is not a substitute for the automated test suite.
