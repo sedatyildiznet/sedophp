@@ -309,7 +309,10 @@ if (!function_exists('queue_push')) {
 }
 
 if (!function_exists('queue_work')) {
-    function queue_work(int $limit = 10): int { return Queue::work($limit); }
+    function queue_work(int $limit = 10, int $staleAfterSeconds = 3600): int
+    {
+        return Queue::work($limit, $staleAfterSeconds);
+    }
 }
 
 if (!function_exists('log_info')) {
