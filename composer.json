@@ -29,7 +29,10 @@
     "sedo"
   ],
   "scripts": {
-    "test": "@php tests/run.php",
+    "test": [
+      "@php tests/run.php",
+      "@php tests/features_020.php"
+    ],
     "lint": "@php tools/lint.php"
   },
   "minimum-stability": "stable",
