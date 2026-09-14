@@ -1,5 +1,0 @@
-blank_issues_enabled: true
-contact_links:
-  - name: Security vulnerability
-    url: https://github.com/sedatyildiznet/sedophp/security/advisories/new
-    about: Report security issues privately.

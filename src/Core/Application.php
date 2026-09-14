@@ -9,6 +9,7 @@ use SedoPHP\Auth\Auth;
 use SedoPHP\Cache\Cache;
 use SedoPHP\Database\Database;
 use SedoPHP\Http\Request;
+use SedoPHP\Mail\Mailer;
 use SedoPHP\Middleware\ApiTokenMiddleware;
 use SedoPHP\Middleware\AuthMiddleware;
 use SedoPHP\Middleware\CsrfMiddleware;
@@ -43,6 +44,7 @@ final class Application
         Auth::configure((array) Config::get('auth', []));
         Jwt::configure((array) Config::get('auth', []));
         Cache::configure((array) Config::get('cache', []), $this->basePath);
+        Mailer::configure((array) Config::get('mail', []));
         View::configure($this->path('app/Views'));
 
         $this->router = new Router();

@@ -7,6 +7,8 @@ namespace SedoPHP\Database;
 use ArrayAccess;
 use JsonSerializable;
 use RuntimeException;
+use SedoPHP\Database\Relations\BelongsTo;
+use SedoPHP\Database\Relations\HasMany;
 
 /** @implements ArrayAccess<string, mixed> */
 abstract class Model implements ArrayAccess, JsonSerializable
@@ -90,6 +92,24 @@ abstract class Model implements ArrayAccess, JsonSerializable
     public function get(string $key, mixed $default = null): mixed
     {
         return $this->attributes[$key] ?? $default;
+    }
+
+    public function getKey(): mixed
+    {
+        return $this->attributes[$this->primaryKey] ?? null;
+    }
+
+    /** @param class-string<Model> $related */
+    protected function hasMany(string $related, string $foreignKey, ?string $localKey = null): HasMany
+    {
+        $key = $localKey ?? $this->primaryKey;
+        return new HasMany($related, $foreignKey, $this->attributes[$key] ?? null);
+    }
+
+    /** @param class-string<Model> $related */
+    protected function belongsTo(string $related, string $foreignKey, string $ownerKey = 'id'): BelongsTo
+    {
+        return new BelongsTo($related, $ownerKey, $this->attributes[$foreignKey] ?? null);
     }
 
     /** @return array<string, mixed> */

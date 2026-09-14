@@ -121,6 +121,35 @@ final class QueryBuilder
         return $clone->get()[0] ?? null;
     }
 
+    /** @return array{data:list<array<string,mixed>>,current_page:int,per_page:int,total:int,last_page:int,from:int|null,to:int|null} */
+    public function paginate(int $perPage = 15, int $page = 1): array
+    {
+        if ($perPage < 1) {
+            throw new InvalidArgumentException('Per-page value must be at least 1.');
+        }
+
+        $page = max(1, $page);
+        $total = $this->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $offset = ($page - 1) * $perPage;
+
+        $clone = clone $this;
+        $clone->limitValue = $perPage;
+        $clone->offsetValue = $offset;
+        $data = $clone->get();
+        $count = count($data);
+
+        return [
+            'data' => $data,
+            'current_page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'last_page' => $lastPage,
+            'from' => $count === 0 ? null : $offset + 1,
+            'to' => $count === 0 ? null : $offset + $count,
+        ];
+    }
+
     public function value(string $column): mixed
     {
         self::assertIdentifier($column, true);
