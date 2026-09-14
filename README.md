@@ -1,6 +1,6 @@
 # SedoPHP
 
-**PHP gibi yaz. Framework gibi çalışsın.**
+**Plain PHP. Framework power.**
 
 SedoPHP is a small PHP 8.3+ framework designed around readable PHP, shared hosting, predictable behavior and almost no setup. It deliberately avoids a large dependency tree, template-language lock-in and hidden application magic.
 
