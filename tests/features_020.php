@@ -20,27 +20,7 @@ use SedoPHP\Security\RateLimiter;
 use SedoPHP\Security\HttpSecurity;
 use SedoPHP\Middleware\JwtMiddleware;
 
-require dirname(__DIR__) . '/bootstrap/autoload.php';
-
-$passed = 0;
-$failed = 0;
-
-$test = static function (string $name, callable $callback) use (&$passed, &$failed): void {
-    try {
-        $callback();
-        $passed++;
-        echo "[PASS] {$name}\n";
-    } catch (Throwable $e) {
-        $failed++;
-        echo "[FAIL] {$name}: {$e->getMessage()}\n";
-    }
-};
-
-$expect = static function (bool $condition, string $message = 'Expectation failed.'): void {
-    if (!$condition) {
-        throw new RuntimeException($message);
-    }
-};
+[$suite, $test, $expect] = require __DIR__ . '/Support/bootstrap.php';
 
 $cacheDirectory = sys_get_temp_dir() . '/sedophp_features_' . getmypid();
 Cache::configure(['path' => $cacheDirectory, 'prefix' => 'test_'], dirname(__DIR__));
@@ -363,5 +343,4 @@ foreach (glob($cacheDirectory . '/*') ?: [] as $file) {
 }
 @rmdir($cacheDirectory);
 
-echo "\nExtended: {$passed} passed, {$failed} failed.\n";
-exit($failed === 0 ? 0 : 1);
+exit($suite->finish('Extended'));
