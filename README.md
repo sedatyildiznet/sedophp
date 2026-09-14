@@ -257,3 +257,12 @@ Provider-specific Apache, LiteSpeed and cPanel configurations can still differ. 
 ## License
 
 MIT.
+
+
+## 0.2 development features
+
+The current development branch adds pagination, hasMany/belongsTo model relations, file cache, rate limiting, hashed database API tokens, HS256 JWT authentication, SMTP mail, a database queue and a shared-hosting-friendly scheduler.
+
+These features remain dependency-light: Redis, Node.js and permanent worker daemons are not required. Queue workers and scheduled tasks can be invoked from cPanel Cron.
+
+See [Advanced 0.2 features](docs/advanced-features.md).

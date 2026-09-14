@@ -200,3 +200,19 @@ log_error('message')
 config('app.name')
 env('APP_ENV')
 ```
+
+
+## 0.2 development APIs
+
+Additional APIs are documented in [advanced-features.md](advanced-features.md).
+
+Built-in middleware aliases now also include throttle, token and jwt. Parameterized middleware uses the form throttle:60,60.
+
+Additional helpers include cache_get(), cache_put(), cache_remember(), cache_forget(), jwt_encode(), jwt_decode(), jwt_claim(), api_token_issue(), api_token_revoke(), token_can(), rate_limit(), mail_send(), queue_push() and queue_work().
+
+Additional CLI commands:
+
+~~~bash
+php sedo queue:work 20
+php sedo schedule:run
+~~~
