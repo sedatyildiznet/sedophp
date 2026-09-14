@@ -1,0 +1,25 @@
+{
+  "name": "sedophp/framework",
+  "description": "A small, readable PHP framework built for shared hosting and everyday PHP.",
+  "type": "project",
+  "license": "MIT",
+  "require": {
+    "php": ">=8.3",
+    "ext-pdo": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "SedoPHP\\": "src/",
+      "App\\": "app/"
+    },
+    "files": [
+      "src/helpers.php"
+    ]
+  },
+  "scripts": {
+    "test": "php tests/run.php",
+    "lint": "find src app bootstrap config routes public database tests -name '*.php' -print0 | xargs -0 -n1 php -l"
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}
