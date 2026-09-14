@@ -1,6 +1,20 @@
-# SedoPHP advanced features — 0.2 development
+# SedoPHP advanced features — 0.2
 
-The 0.2 development line expands SedoPHP without changing its shared-hosting-first design.
+SedoPHP 0.2 expands the framework without changing its shared-hosting-first design.
+
+## Route groups and global middleware
+
+Routes can be grouped with a shared prefix and middleware. Groups can be nested:
+
+~~~php
+route_group(['prefix' => '/api', 'middleware' => 'token'], function () {
+    route_group(['prefix' => '/v1'], function () {
+        get('/me', 'ApiController@me');
+    });
+});
+~~~
+
+Global middleware is configured in `config/middleware.php`. CORS and security headers are enabled globally by default so they also cover 404, 405 and OPTIONS responses.
 
 ## Pagination
 
@@ -12,6 +26,24 @@ $page = db('posts')
 ~~~
 
 The result contains data, current_page, per_page, total, last_page, from and to.
+
+## Query joins, grouping and HAVING
+
+~~~php
+$rows = db('users')
+    ->select('users.name', 'posts.title')
+    ->leftJoin('posts', 'users.id', '=', 'posts.user_id')
+    ->where('users.active', 1)
+    ->get();
+
+$groups = db('users')
+    ->select('users.active')
+    ->groupBy('users.active')
+    ->having('users.active', 1)
+    ->paginate(20);
+~~~
+
+Grouped pagination calculates totals using a wrapped count query.
 
 ## Model relations
 
@@ -44,6 +76,40 @@ $users = User::with('posts');
 ~~~
 
 Both relation objects expose query() for additional query-builder constraints. `with()` accepts one relation name or a list of relation names and includes hydrated relations in model arrays/JSON.
+
+## Model casts and timestamps
+
+Casts and timestamps are opt-in:
+
+~~~php
+final class User extends Model
+{
+    protected string $table = 'users';
+    protected array $fillable = ['name', 'active', 'settings'];
+
+    protected array $casts = [
+        'active' => 'boolean',
+        'settings' => 'array',
+    ];
+
+    protected bool $timestamps = true;
+}
+~~~
+
+Supported casts include integer, float, boolean, string, array/json and datetime. When timestamps are enabled, `created_at` and `updated_at` are managed automatically.
+
+## Nested validation
+
+Dot paths and wildcard arrays can be validated directly:
+
+~~~php
+$errors = validate($data, [
+    'profile.email' => 'required|email',
+    'items.*.name' => 'required|string',
+    'items.*.password' => 'required|confirmed',
+    'items.*.mirror' => 'same:items.*.name',
+]);
+~~~
 
 ## Cache
 
@@ -250,12 +316,36 @@ php /home/USER/public_html/sedo schedule:run
 No permanent scheduler daemon is required.
 Each task is executed at most once per due minute, and overlap-skipped tasks are not counted as completed.
 
+## Schema builder
+
+New migrations can use the portable schema builder:
+
+~~~php
+use SedoPHP\Database\Blueprint;
+use SedoPHP\Database\Schema;
+
+Schema::create('posts', static function (Blueprint $table): void {
+    $table->id();
+    $table->foreignId('user_id');
+    $table->string('title');
+    $table->boolean('published')->defaultValue(false);
+    $table->timestamps();
+    $table->index('user_id');
+});
+~~~
+
+`Schema::table()`, `drop()`, `dropIfExists()`, `rename()`, `hasTable()` and `hasColumn()` are also available. Existing PDO-based migrations remain valid.
+
 ## CORS and security headers
 
 Configure allowed browser origins as a comma-separated list:
 
 ~~~dotenv
 CORS_ORIGINS=https://app.example.com,https://admin.example.com
+CORS_ALLOW_CREDENTIALS=false
+CORS_MAX_AGE=600
+CORS_EXPOSE_HEADERS=X-Request-Id
+CONTENT_SECURITY_POLICY=
 ~~~
 
-SedoPHP adds `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy` by default. CORS response headers are emitted only for explicitly allowed origins.
+SedoPHP adds `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy` by default. An optional Content Security Policy can be supplied through the environment. CORS response headers are emitted only for explicitly allowed origins.
