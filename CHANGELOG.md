@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 — 2026-09-15
+
+### Documentation and metadata
+
+- added standardized `CITATION.cff` metadata for GitHub's citation interface
+- linked SedoPHP citation metadata to Sedat Yıldız's ORCID
+- documented the Zenodo/DOI citation path for archived releases
+- refreshed release metadata for the 0.2.1 patch
+
 ## 0.2.0 — 2026-09-14
 
 ### Database and models
