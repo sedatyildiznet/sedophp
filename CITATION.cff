@@ -2,8 +2,8 @@ cff-version: 1.2.0
 message: "If you use SedoPHP in your work, please cite it using the metadata from this file."
 title: "SedoPHP"
 type: software
-version: "0.2.0"
-date-released: "2026-09-14"
+version: "0.2.1"
+date-released: "2026-09-15"
 license: MIT
 repository-code: "https://github.com/sedatyildiznet/sedophp"
 url: "https://github.com/sedatyildiznet/sedophp"
