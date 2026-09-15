@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use SedoPHP in your work, please cite it using the metadata from this file."
+title: "SedoPHP"
+type: software
+version: "0.2.0"
+date-released: "2026-09-14"
+license: MIT
+repository-code: "https://github.com/sedatyildiznet/sedophp"
+url: "https://github.com/sedatyildiznet/sedophp"
+abstract: >-
+  SedoPHP is a lightweight PHP 8.3+ framework built for shared hosting,
+  readable code, predictable behavior and zero-config development.
+authors:
+  - family-names: "Yıldız"
+    given-names: "Sedat"
+    orcid: "https://orcid.org/0009-0002-5777-1669"
+keywords:
+  - PHP
+  - PHP framework
+  - MVC
+  - shared hosting
+  - cPanel
+  - PDO
+  - ORM
+  - API
