@@ -205,6 +205,7 @@ GitHub Actions currently verifies:
 - [Shared hosting](docs/shared-hosting.md)
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Changelog](CHANGELOG.md)
 
 ## Design principles
