@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Documentation and project metadata
+
+- added Zenodo DOI badge and DOI citation metadata
+- reorganized README around installation, features, deployment, security and citation
+- updated the 0.2 security/support policy
+- expanded contribution guidance with cross-platform test commands
+- added a project code of conduct
+
 ## 0.2.1 — 2026-09-15
 
 ### Documentation and metadata
