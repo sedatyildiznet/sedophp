@@ -14,6 +14,10 @@ authors:
   - family-names: "Yıldız"
     given-names: "Sedat"
     orcid: "https://orcid.org/0009-0002-5777-1669"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.22766421"
+    description: "Zenodo archive for SedoPHP 0.2.1"
 keywords:
   - PHP
   - PHP framework
