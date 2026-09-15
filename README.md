@@ -2,26 +2,36 @@
 
 **Plain PHP. Framework power.**
 
-SedoPHP is a small PHP 8.3+ framework designed around readable PHP, shared hosting, predictable behavior and almost no setup. It deliberately avoids a large dependency tree, template-language lock-in and hidden application magic.
+[![Tests](https://github.com/sedatyildiznet/sedophp/actions/workflows/tests.yml/badge.svg)](https://github.com/sedatyildiznet/sedophp/actions/workflows/tests.yml)
+[![Latest Release](https://img.shields.io/github/v/release/sedatyildiznet/sedophp)](https://github.com/sedatyildiznet/sedophp/releases/latest)
+[![PHP](https://img.shields.io/badge/PHP-%3E%3D8.3-777BB4?logo=php&logoColor=white)](https://www.php.net/)
+[![License](https://img.shields.io/github/license/sedatyildiznet/sedophp)](LICENSE)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22766421.svg)](https://doi.org/10.5281/zenodo.22766421)
 
-> Status: **0.2.1 stable**
+SedoPHP is a lightweight PHP 8.3+ framework built for **shared hosting, readable code and predictable behavior**. It keeps the familiar parts of plain PHP while providing routing, database tools, validation, authentication, APIs, queues and scheduling without requiring a large runtime dependency stack.
 
-## What makes it different?
+> Current stable release: **0.2.1**
 
-- PHP 8.3+
-- Works on ordinary cPanel/shared hosting
-- Zero third-party runtime dependencies
-- Composer-compatible, but Composer is not required on the server
-- Plain PHP views
-- Small functional API: `get()`, `input()`, `db()`, `view()`, `auth()`...
-- PDO prepared statements
-- Lightweight models with relations, casts, timestamps and explicit mass-assignment fields
-- Nested/wildcard validation, sessions, CSRF, uploads and authentication included
-- Route groups, global middleware, CORS and security headers
-- JSON requests/responses, API tokens and JWT authentication
-- CLI is useful, never mandatory
-- PSR-4 project layout and PSR-12-oriented source style
-- Automated tests on PHP 8.3, 8.4 and 8.5 plus MariaDB 11
+## Why SedoPHP?
+
+- **Shared-hosting first** — designed for ordinary cPanel, Apache and LiteSpeed environments.
+- **Zero third-party runtime dependencies** — Composer is supported but is not required on the production server.
+- **Plain PHP views** — no proprietary template language.
+- **Small, readable API** — helpers such as `get()`, `input()`, `db()`, `view()` and `auth()`.
+- **Modern application features** — route groups, middleware, validation, models, API tokens, JWT, SMTP, queues and scheduler.
+- **Safe defaults** — prepared statements, CSRF protection, guarded destructive queries, secure uploads and production-safe error responses.
+- **Portable** — PHP 8.3+, MySQL/MariaDB and SQLite support.
+- **Tested** — automated CI on PHP 8.3, 8.4 and 8.5 plus MariaDB 11.
+
+## Requirements
+
+- PHP **8.3 or newer**
+- PDO extension
+- Fileinfo extension
+- MySQL/MariaDB or SQLite
+- Apache/LiteSpeed, or PHP's built-in server for local development
+
+Node.js, Redis and permanent worker daemons are not required.
 
 ## Quick start
 
@@ -40,14 +50,16 @@ Composer is optional:
 composer install
 ```
 
-If `vendor/autoload.php` does not exist, SedoPHP uses its own tiny PSR-4-compatible fallback autoloader.
+If `vendor/autoload.php` is missing, SedoPHP uses its own small PSR-4-compatible fallback autoloader.
 
-## Routes
+For a production/shared-hosting installation, see [Shared hosting](docs/shared-hosting.md).
+
+## A small example
+
+### Routes
 
 ```php
-get('/', function () {
-    return view('home');
-});
+get('/', fn () => view('home'));
 
 get('/users/{id}', 'UserController@show');
 
@@ -58,30 +70,14 @@ route_group(['prefix' => '/api/v1', 'middleware' => 'token'], function () {
 });
 ```
 
-The router handles route parameters, nested route groups, route/global middleware, HEAD, OPTIONS, 404 and 405 responses. Duplicate method/path registrations are rejected.
-
-## Input
-
-```php
-$email = input('email');
-$data = input_all();
-$file = upload('avatar');
-```
-
-JSON request bodies are read automatically. Invalid JSON returns HTTP 400. URL-encoded PUT/PATCH/DELETE bodies are parsed as well.
-
-## Database
+### Database
 
 ```php
 $users = db('users')
     ->where('active', 1)
     ->whereIn('role', ['admin', 'editor'])
     ->orderBy('name')
-    ->get();
-
-$user = db('users')->where('id', 5)->first();
-$name = db('users')->where('id', 5)->value('name');
-$names = db('users')->pluck('name');
+    ->paginate(20);
 
 $id = db('users')->insert([
     'name' => 'Sedat',
@@ -89,9 +85,7 @@ $id = db('users')->insert([
 ]);
 ```
 
-`where('column', null)` becomes `IS NULL` automatically. Joins, grouping, HAVING and pagination are supported. Updates and deletes require a `where()` clause.
-
-## Models
+### Model
 
 ```php
 final class User extends Model
@@ -115,95 +109,49 @@ final class User extends Model
 }
 ```
 
-Models refuse mass assignment until `$fillable` is explicitly defined. Casts and automatic timestamps are opt-in, and `hasMany` / `belongsTo` relations support eager loading.
-
-## Validation
+### Validation
 
 ```php
 $errors = validate(input_all(), [
     'email' => 'required|email|unique:users,email',
     'password' => 'required|min:8|confirmed',
-    'age' => 'nullable|integer|min:18',
     'profile.website' => 'nullable|url',
     'items.*.name' => 'required|string',
 ]);
 ```
 
-Database, file and image rules are available without a separate validation package.
+## Included features
 
-## Uploads
+| Area | Included |
+| --- | --- |
+| Routing | Parameters, route groups, middleware, HEAD/OPTIONS, 404/405 |
+| Requests | Form input, JSON bodies, uploads, request attributes |
+| Responses | Views, redirects, JSON, CORS, security headers |
+| Database | PDO, query builder, joins, grouping, pagination, transactions |
+| Models | Fillable fields, casts, timestamps, `hasMany`, `belongsTo`, eager loading |
+| Validation | Nested paths, wildcards, database rules, file/image rules |
+| Security | Sessions, CSRF, auth, secure uploads, guarded destructive queries |
+| APIs | API tokens, abilities, JWT, rotating refresh tokens, rate limiting |
+| Mail | Native PHP mail and SMTP, CC/BCC, attachments |
+| Queue | Database queue, named queues, retries, failed jobs, stale-worker recovery |
+| Scheduler | Cron expressions, task timezones, overlap and duplicate-run protection |
+| CLI | Generators, migrations, workers, scheduler, routes, doctor, version |
 
-```php
-$avatar = upload('avatar');
-
-$errors = validate(['avatar' => $avatar], [
-    'avatar' => 'required|image|mimes:jpg,jpeg,png|max:2048',
-]);
-
-if (!$errors && $avatar) {
-    $path = $avatar->save('storage/uploads', allowedMimes: [
-        'image/jpeg',
-        'image/png',
-    ]);
-}
-```
-
-Uploads use random filenames by default and block executable PHP-style extensions.
-
-## Session and CSRF
-
-```php
-session_set('theme', 'dark');
-$theme = session('theme');
-flash('success', 'Saved.');
-```
-
-```php
-post('/profile', 'ProfileController@save')->middleware('csrf');
-```
-
-```php
-<form method="post" action="/profile">
-    <?= csrf() ?>
-</form>
-```
-
-## Authentication
-
-```php
-if (login($email, $password)) {
-    return redirect('/panel');
-}
-
-if (auth()) {
-    echo user('name');
-}
-
-logout();
-```
-
-Password hashes are never returned by `user()`. Authentication also confirms that the session user still exists in the database.
-
-## Migrations
-
-```bash
-php sedo make:migration create_posts
-php sedo migrate
-php sedo migrate:rollback
-```
-
-New migrations use the portable `Schema` / `Blueprint` builder, while existing plain-PDO migrations remain supported. SedoPHP avoids wrapping MySQL/MariaDB schema DDL in unsafe fake transactions.
+See [Advanced features](docs/advanced-features.md) for the extended 0.2 feature set.
 
 ## Shared hosting
 
-Two deployment styles are supported:
+SedoPHP supports two deployment styles:
 
 1. **Recommended:** point the domain document root to the project's `public/` directory.
-2. **Fallback:** upload the whole project to `public_html`; the root `.htaccess` blocks framework internals and routes public traffic into `public/`.
+2. **Fallback:** upload the project to `public_html`; the root `.htaccess` protects framework internals and routes public traffic into `public/`.
 
-No Node.js, Redis, worker, daemon or production Composer process is required.
+The CLI is useful but never mandatory. Queue workers and scheduled tasks can be invoked through cPanel Cron when needed.
 
-See [Shared Hosting](docs/shared-hosting.md) and the [verification checklist](docs/shared-hosting-checklist.md).
+Deployment guides:
+
+- [Shared hosting guide](docs/shared-hosting.md)
+- [Shared-hosting verification checklist](docs/shared-hosting-checklist.md)
 
 ## CLI
 
@@ -217,86 +165,83 @@ php sedo migrate:rollback
 php sedo queue:work 20 default
 php sedo queue:failed
 php sedo queue:retry all
-php sedo queue:flush
 php sedo schedule:run
 php sedo route:list
 php sedo doctor
 php sedo version
 ```
 
-Everything created by the CLI can also be created by hand.
+Everything generated by the CLI can also be created manually.
 
-## Tests
+## Testing
 
 ```bash
 composer lint
 composer test
 ```
 
-The lint command is implemented in PHP and works on Windows, Linux and macOS.
-
-GitHub Actions currently checks:
+GitHub Actions currently verifies:
 
 - PHP 8.3 / SQLite
 - PHP 8.4 / SQLite
 - PHP 8.5 / SQLite
 - PHP 8.3 / MariaDB 11
 - migrations and rollback
-- routing and HTTP smoke behavior
+- routing and HTTP behavior
 - authentication and CSRF
 - query builder and models
 - uploads and validation
-- Composer metadata
-- Composer-free autoloading
+- Composer and Composer-free autoloading
 - shared-hosting protection rules
-- route groups, CORS and security middleware
-- nested/wildcard validation
-- model casts and timestamps
-- joins, grouping, HAVING and grouped pagination
-- schema builder compatibility across SQLite and MariaDB
-- queue recovery/failed jobs, scheduler, JWT/API tokens and SMTP
-- edge cases for relative SQLite paths, same-origin redirects and required validation
+- CORS and security middleware
+- JWT/API tokens, queues, scheduler and SMTP
 
 ## Documentation
 
 - [Getting started](docs/getting-started.md)
 - [Core API](docs/api.md)
+- [Advanced features](docs/advanced-features.md)
 - [Architecture](docs/architecture.md)
 - [Shared hosting](docs/shared-hosting.md)
-- [Shared-hosting verification checklist](docs/shared-hosting-checklist.md)
 - [Security policy](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
 
-## Design rules
+## Design principles
 
-1. A PHP developer should understand application code without learning a new language.
-2. Prefer one obvious way to do a common task.
-3. Make hidden behavior rare and documented.
-4. Shared hosting is a first-class target, not an afterthought.
-5. Native PHP and PDO remain reachable when the framework abstraction is not enough.
-6. Features do not enter the core merely because larger frameworks have them.
+1. Application code should remain understandable to a PHP developer without learning a new language.
+2. Prefer one obvious way to perform common tasks.
+3. Keep hidden behavior rare and documented.
+4. Treat shared hosting as a first-class deployment target.
+5. Keep native PHP and PDO reachable when framework abstractions are not enough.
+6. Add features to the core only when they fit the framework's scope.
 
 ## Stability
 
-SedoPHP 0.2.1 is the current stable release. It keeps the dependency-light, shared-hosting-first 0.1 API while adding production-ready routing, database, validation, queue, scheduler and API features. Patch releases may fix bugs and security issues without intentionally breaking documented 0.2 APIs.
+SedoPHP **0.2.1** is the current stable release. Patch releases may contain bug fixes, security fixes and documentation/metadata improvements without intentionally breaking documented 0.2 APIs.
 
-Provider-specific Apache, LiteSpeed and cPanel configurations can still differ. Use `php sedo doctor` and the shared-hosting verification checklist when deploying to a new provider.
+Provider-specific Apache, LiteSpeed and cPanel behavior can differ. Run `php sedo doctor` when terminal access is available and use the deployment checklist on new hosting environments.
 
+## Security
+
+SedoPHP has automated security-oriented regression coverage but has **not** undergone an independent third-party security audit.
+
+Please report vulnerabilities privately through GitHub Security Advisories. See [SECURITY.md](SECURITY.md).
+
+## Contributing
+
+Small, focused and readable pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a change.
 
 ## Citation
 
-If you use SedoPHP in academic work, research or a publication, cite the project using GitHub's **Cite this repository** feature or the Zenodo DOI for the relevant release.
+SedoPHP 0.2.1 is archived on Zenodo.
 
-Citation metadata is maintained in [CITATION.cff](CITATION.cff) and is linked to Sedat Yıldız's [ORCID](https://orcid.org/0009-0002-5777-1669).
+**DOI:** [10.5281/zenodo.22766421](https://doi.org/10.5281/zenodo.22766421)
+
+Citation metadata is available through [CITATION.cff](CITATION.cff) and GitHub's **Cite this repository** interface.
+
+Author: **Sedat Yıldız** — [ORCID 0009-0002-5777-1669](https://orcid.org/0009-0002-5777-1669)
 
 ## License
 
-MIT.
-
-
-## 0.2 highlights
-
-SedoPHP 0.2 adds route groups and global middleware, CORS/security headers, nested validation, model relations/casts/timestamps, joins and grouped queries, a portable schema builder, API-token/JWT authentication, SMTP mail, a recoverable database queue and a cron-friendly scheduler.
-
-These features remain dependency-light: Redis, Node.js and permanent worker daemons are not required. Queue workers and scheduled tasks can be invoked from cPanel Cron.
-
-See [Advanced features](docs/advanced-features.md).
+SedoPHP is open-source software licensed under the [MIT License](LICENSE).
