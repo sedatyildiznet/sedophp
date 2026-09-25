@@ -1,6 +1,6 @@
 # Changelog
 
-## Release candidate — 0.3.0-rc.1
+## 0.3.0 — 2026-09-25
 
 ### Architecture and planning
 
