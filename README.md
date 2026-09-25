@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="assets/branding/sedophp-logo.png" alt="SedoPHP" width="720">
+  <img src="assets/branding/sedophp-logo.png" alt="SedoPHP — Plain PHP. Framework power." width="640">
 </p>
-
-<p align="center"><strong>Plain PHP. Framework power.</strong></p>
 
 [![Tests](https://github.com/sedatyildiznet/sedophp/actions/workflows/tests.yml/badge.svg)](https://github.com/sedatyildiznet/sedophp/actions/workflows/tests.yml)
 [![Latest Release](https://img.shields.io/github/v/release/sedatyildiznet/sedophp)](https://github.com/sedatyildiznet/sedophp/releases/latest)
