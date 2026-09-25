@@ -20,7 +20,9 @@
   "autoload": {
     "psr-4": {
       "SedoPHP\\": "src/",
-      "App\\": "app/"
+      "App\\": "app/",
+      "Database\\Seeders\\": "database/seeders/",
+      "Database\\Factories\\": "database/factories/"
     },
     "files": [
       "src/helpers.php"
