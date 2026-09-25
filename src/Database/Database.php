@@ -52,6 +52,11 @@ final class Database
         if ($driver === 'sqlite') {
             $file = (string) (self::$config['sqlite'] ?? ':memory:');
             self::$pdo = new PDO('sqlite:' . $file, null, null, $options);
+
+            if ((bool) (self::$config['foreign_keys'] ?? true)) {
+                self::$pdo->exec('PRAGMA foreign_keys = ON');
+            }
+
             return self::$pdo;
         }
 
