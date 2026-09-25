@@ -5,6 +5,8 @@ declare(strict_types=1);
 use SedoPHP\Database\Database;
 use SedoPHP\Database\Model;
 use SedoPHP\Database\QueryBuilder;
+use SedoPHP\Database\Schema;
+use SedoPHP\Database\Blueprint;
 use SedoPHP\Database\Relations\BelongsTo;
 use SedoPHP\Database\Relations\BelongsToMany;
 use SedoPHP\Database\Relations\HasMany;
@@ -255,6 +257,52 @@ $test('nested transactions use savepoints without rolling back the outer transac
     $expect(Database::table('m1_settings')->where('setting_key', 'outer_before')->exists());
     $expect(Database::table('m1_settings')->where('setting_key', 'outer_after')->exists());
     $expect(!Database::table('m1_settings')->where('setting_key', 'inner_rollback')->exists());
+});
+
+$test('schema builder supports soft deletes, composite indexes, foreign keys and renameColumn', static function () use ($expect, $testDriver): void {
+    Schema::dropIfExists('m1_schema_posts');
+
+    Schema::create('m1_schema_posts', static function (Blueprint $table): void {
+        $table->id();
+        $table->foreignId('user_id');
+        $table->string('title');
+        $table->softDeletes();
+        $table->unique(['user_id', 'title']);
+        $table->foreign('user_id', 'm1_users', 'id', onDelete: 'CASCADE');
+    });
+
+    $expect(Schema::hasColumn('m1_schema_posts', 'deleted_at'));
+    $expect(Schema::hasColumn('m1_schema_posts', 'title'));
+
+    Schema::table('m1_schema_posts', static function (Blueprint $table): void {
+        $table->renameColumn('title', 'headline');
+    });
+
+    $expect(Schema::hasColumn('m1_schema_posts', 'headline'));
+    $expect(!Schema::hasColumn('m1_schema_posts', 'title'));
+
+    $userId = Database::table('m1_users')->value('id');
+    Database::table('m1_schema_posts')->insert([
+        'user_id' => $userId,
+        'headline' => 'Schema test',
+        'deleted_at' => null,
+    ]);
+
+    if ($testDriver === 'sqlite') {
+        $blocked = false;
+        try {
+            Database::table('m1_schema_posts')->insert([
+                'user_id' => 999999,
+                'headline' => 'Invalid owner',
+                'deleted_at' => null,
+            ]);
+        } catch (PDOException) {
+            $blocked = true;
+        }
+        $expect($blocked, 'SQLite foreign-key enforcement is disabled.');
+    }
+
+    Schema::drop('m1_schema_posts');
 });
 
 $test('hasOne returns one related model', static function () use ($expect, $user, $profile): void {
