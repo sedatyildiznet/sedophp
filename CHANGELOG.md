@@ -40,6 +40,16 @@
 - added configurable session-login throttling using the existing rate limiter
 - added password reset support without introducing an authentication UI or external identity dependency
 
+### CLI and developer experience
+
+- added generators for middleware, FormRequest classes, jobs and application console commands
+- added convention-based application console commands without a service-provider or DI requirement
+- added cache:clear and redacted config:show commands
+- added routes as a compatible alias for route:list and displayed route names in route listings
+- added optional optimize and optimize:clear commands
+- added compiled plain-PHP configuration cache and a route metadata manifest
+- extended linting to include the root sedo CLI executable
+
 ### Documentation and project metadata
 
 - added Zenodo DOI badge and DOI citation metadata
