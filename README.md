@@ -1,6 +1,8 @@
-# SedoPHP
+<p align="center">
+  <img src="assets/branding/sedophp-logo.png" alt="SedoPHP" width="720">
+</p>
 
-**Plain PHP. Framework power.**
+<p align="center"><strong>Plain PHP. Framework power.</strong></p>
 
 [![Tests](https://github.com/sedatyildiznet/sedophp/actions/workflows/tests.yml/badge.svg)](https://github.com/sedatyildiznet/sedophp/actions/workflows/tests.yml)
 [![Latest Release](https://img.shields.io/github/v/release/sedatyildiznet/sedophp)](https://github.com/sedatyildiznet/sedophp/releases/latest)
@@ -10,7 +12,7 @@
 
 SedoPHP is a lightweight PHP 8.3+ framework built for **shared hosting, readable code and predictable behavior**. It keeps the familiar parts of plain PHP while providing routing, database tools, validation, authentication, APIs, queues and scheduling without requiring a large runtime dependency stack.
 
-> Current stable release: **0.3.0**
+> Current stable release: **0.3.1**
 
 ## Why SedoPHP?
 
@@ -233,6 +235,15 @@ GitHub Actions currently verifies:
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Changelog](CHANGELOG.md)
 
+## Branding
+
+Official transparent PNG assets are available under `assets/branding/`:
+
+- [SedoPHP logo](assets/branding/sedophp-logo.png)
+- [Blue icon](assets/branding/sedophp-icon-blue.png)
+- [White icon](assets/branding/sedophp-icon-white.png) — intended for dark backgrounds
+
+
 ## Design principles
 
 1. Application code should remain understandable to a PHP developer without learning a new language.
@@ -244,7 +255,7 @@ GitHub Actions currently verifies:
 
 ## Stability
 
-SedoPHP **0.3.0** is the current stable release. Patch releases may contain bug fixes, security fixes and documentation/metadata improvements without intentionally breaking documented 0.3 APIs.
+SedoPHP **0.3.1** is the current stable release. Patch releases may contain bug fixes, security fixes and documentation/metadata improvements without intentionally breaking documented 0.3 APIs.
 
 Provider-specific Apache, LiteSpeed and cPanel behavior can differ. Run `php sedo doctor` when terminal access is available and use the deployment checklist on new hosting environments.
 
@@ -260,7 +271,7 @@ Small, focused and readable pull requests are welcome. Read [CONTRIBUTING.md](CO
 
 ## Citation
 
-Citation metadata for SedoPHP 0.3.0 is available through [CITATION.cff](CITATION.cff) and GitHub's **Cite this repository** interface.
+Citation metadata for SedoPHP 0.3.1 is available through [CITATION.cff](CITATION.cff) and GitHub's **Cite this repository** interface.
 
 The existing Zenodo archive for SedoPHP 0.2.1 remains available at DOI **10.5281/zenodo.22766421**. The 0.3.0 archive metadata should be updated after the GitHub release is ingested by Zenodo.
 

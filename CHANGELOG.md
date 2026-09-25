@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1 — 2026-09-25
+
+### Branding and metadata
+
+- added official SedoPHP transparent logo and icon assets for repository and documentation use
+- added blue and white icon variants for light and dark backgrounds
+- refreshed README branding and asset references
+- bumped the stable patch version to 0.3.1
+
 ## 0.3.0 — 2026-09-25
 
 ### Architecture and planning
