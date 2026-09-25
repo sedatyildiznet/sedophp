@@ -29,6 +29,17 @@
 - added database row presence and absence assertions
 - registered seeder and factory namespaces in both Composer and the fallback autoloader
 
+### Routing, requests and authentication
+
+- added named routes and URL generation with encoded route parameters
+- added HMAC-signed URLs, optional expiration and a signed-route middleware
+- added APP_KEY configuration for URL signatures
+- added optional FormRequest validation classes while retaining the existing validate() helper
+- added cache-backed hashed one-time tokens for password reset and email verification
+- added single-use token consumption and explicit revocation
+- added configurable session-login throttling using the existing rate limiter
+- added password reset support without introducing an authentication UI or external identity dependency
+
 ### Documentation and project metadata
 
 - added Zenodo DOI badge and DOI citation metadata
