@@ -322,6 +322,21 @@ $test('belongsToMany hydrates related models and requested pivot data', static f
     $expect(isset($pivot['user_id'], $pivot['role_id'], $pivot['level']));
 });
 
+$test('belongsToMany supports attach, detach and sync without extra dependencies', static function () use ($expect, $user, $admin, $editor): void {
+    $expect($user->roles()->detach($editor->getKey()) === 1);
+    $expect($user->roles()->count() === 1);
+
+    $expect($user->roles()->attach($editor->getKey(), ['level' => 'restored']));
+    $expect($user->roles()->count() === 2);
+
+    $result = $user->roles()->sync([$admin->getKey()]);
+    $expect(count($result['detached']) === 1);
+    $expect($user->roles()->count() === 1);
+
+    $user->roles()->attach($editor->getKey(), ['level' => 'member']);
+    $expect($user->roles()->count() === 2);
+});
+
 $test('eager loading supports hasOne, belongsToMany and constraints', static function () use ($expect): void {
     $users = M1User::with([
         'profile',
