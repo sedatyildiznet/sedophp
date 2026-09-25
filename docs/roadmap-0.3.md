@@ -1,6 +1,6 @@
 # SedoPHP 0.3 roadmap
 
-Status: **stable release preparation**
+Status: **stable**
 
 Working version: **0.3.0**
 
@@ -225,4 +225,4 @@ Feature freeze is now active for `0.3.0-rc.1`.
 - [x] M8 — Optimization and doctor.
 - [x] M9 — Documentation, examples and benchmarks.
 - [x] Release candidate regression pass.
-- [ ] Stable 0.3.0 release.
+- [x] Stable 0.3.0 release.
