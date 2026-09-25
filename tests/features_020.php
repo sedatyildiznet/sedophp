@@ -462,6 +462,35 @@ $test('scheduler names hooks and logs execution results', static function () use
     $expect(($payload['context']['result'] ?? null) === 'success');
     $expect(isset($payload['context']['duration_ms']));
 
+    $failureEvents = [];
+    $failureSchedule = new Schedule();
+    $failureSchedule->call(static function (): void {
+        throw new RuntimeException('expected scheduled failure');
+    })
+        ->name('feature.failure')
+        ->onFailure(static function (Throwable $exception) use (&$failureEvents): void {
+            $failureEvents[] = $exception->getMessage();
+        })
+        ->after(static function () use (&$failureEvents): void {
+            $failureEvents[] = 'after';
+        });
+
+    $thrown = false;
+    try {
+        $failureSchedule->runDue(new DateTimeImmutable('2026-09-14 05:01:00'));
+    } catch (RuntimeException $exception) {
+        $thrown = $exception->getMessage() === 'expected scheduled failure';
+    }
+
+    $expect($thrown);
+    $expect($failureEvents === ['expected scheduled failure', 'after']);
+
+    $lines = array_values(array_filter(file($logFile, FILE_IGNORE_NEW_LINES) ?: []));
+    $failedPayload = json_decode((string) end($lines), true, 512, JSON_THROW_ON_ERROR);
+    $expect(($failedPayload['message'] ?? null) === 'Scheduled task failed');
+    $expect(($failedPayload['context']['task'] ?? null) === 'feature.failure');
+    $expect(($failedPayload['context']['result'] ?? null) === 'failure');
+
     @unlink($logFile);
 });
 
