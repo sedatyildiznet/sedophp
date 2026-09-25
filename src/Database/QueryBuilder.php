@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace SedoPHP\Database;
 
+use Generator;
 use InvalidArgumentException;
 use PDO;
 use PDOStatement;
@@ -80,6 +81,26 @@ final class QueryBuilder
     public function whereNotIn(string $column, array $values): self
     {
         return $this->inWhere('AND', $column, $values, true);
+    }
+
+    public function whereColumn(string $first, string $operator, string $second): self
+    {
+        return $this->columnWhere('AND', $first, $operator, $second);
+    }
+
+    public function orWhereColumn(string $first, string $operator, string $second): self
+    {
+        return $this->columnWhere('OR', $first, $operator, $second);
+    }
+
+    public function whereExists(QueryBuilder $query): self
+    {
+        return $this->existsWhere('AND', $query, false);
+    }
+
+    public function whereNotExists(QueryBuilder $query): self
+    {
+        return $this->existsWhere('AND', $query, true);
     }
 
     public function join(
@@ -175,24 +196,19 @@ final class QueryBuilder
     /** @return list<array<string, mixed>> */
     public function get(): array
     {
-        [$whereSql, $whereBindings] = $this->whereSql();
-        [$havingSql, $havingBindings] = $this->havingSql();
+        [$sql, $bindings] = $this->compileSelect();
+        return $this->execute($sql, $bindings)->fetchAll();
+    }
 
-        $columns = implode(', ', array_map(
-            fn (string $column): string => $this->quoteSelectable($column),
-            $this->columns
-        ));
+    public function toSql(): string
+    {
+        return $this->compileSelect()[0];
+    }
 
-        $sql = 'SELECT ' . $columns
-            . ' FROM ' . $this->quote($this->table)
-            . $this->joinSql()
-            . $whereSql
-            . $this->groupSql()
-            . $havingSql
-            . $this->orderSql()
-            . $this->limitSql();
-
-        return $this->execute($sql, array_merge($whereBindings, $havingBindings))->fetchAll();
+    /** @return list<mixed> */
+    public function bindings(): array
+    {
+        return $this->compileSelect()[1];
     }
 
     /** @return array<string, mixed>|null */
@@ -230,6 +246,76 @@ final class QueryBuilder
             'from' => $count === 0 ? null : $offset + 1,
             'to' => $count === 0 ? null : $offset + $count,
         ];
+    }
+
+    /**
+     * Process results in bounded batches.
+     *
+     * Returning false from the callback stops iteration early.
+     *
+     * @param callable(list<array<string,mixed>>, int):mixed $callback
+     */
+    public function chunk(int $size, callable $callback): int
+    {
+        if ($size < 1) {
+            throw new InvalidArgumentException('Chunk size must be at least 1.');
+        }
+
+        $processed = 0;
+        $page = 1;
+        $baseOffset = $this->offsetValue ?? 0;
+
+        while (true) {
+            $query = clone $this;
+            $query->limitValue = $size;
+            $query->offsetValue = $baseOffset + $processed;
+            $rows = $query->get();
+
+            if ($rows === []) {
+                break;
+            }
+
+            $count = count($rows);
+            $processed += $count;
+
+            if ($callback($rows, $page) === false || $count < $size) {
+                break;
+            }
+
+            $page++;
+        }
+
+        return $processed;
+    }
+
+    /** @return Generator<int, array<string,mixed>> */
+    public function cursor(int $chunkSize = 100): Generator
+    {
+        if ($chunkSize < 1) {
+            throw new InvalidArgumentException('Cursor chunk size must be at least 1.');
+        }
+
+        $offset = $this->offsetValue ?? 0;
+
+        while (true) {
+            $query = clone $this;
+            $query->limitValue = $chunkSize;
+            $query->offsetValue = $offset;
+            $rows = $query->get();
+
+            if ($rows === []) {
+                return;
+            }
+
+            foreach ($rows as $row) {
+                yield $row;
+                $offset++;
+            }
+
+            if (count($rows) < $chunkSize) {
+                return;
+            }
+        }
     }
 
     public function value(string $column): mixed
@@ -331,6 +417,157 @@ final class QueryBuilder
         return (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * @param list<array<string,mixed>> $rows
+     * @param string|list<string> $uniqueBy
+     * @param list<string>|null $updateColumns
+     */
+    public function upsert(array $rows, string|array $uniqueBy, ?array $updateColumns = null): int
+    {
+        if ($rows === []) {
+            return 0;
+        }
+
+        $rows = array_values($rows);
+        $columns = array_keys($rows[0]);
+        if ($columns === []) {
+            throw new InvalidArgumentException('Upsert rows cannot be empty.');
+        }
+
+        foreach ($columns as $column) {
+            self::assertIdentifier((string) $column, true);
+        }
+
+        foreach ($rows as $row) {
+            if (array_keys($row) !== $columns) {
+                throw new InvalidArgumentException('All upsert rows must contain the same columns in the same order.');
+            }
+        }
+
+        $uniqueColumns = is_array($uniqueBy) ? array_values($uniqueBy) : [$uniqueBy];
+        if ($uniqueColumns === []) {
+            throw new InvalidArgumentException('Upsert requires at least one unique column.');
+        }
+
+        foreach ($uniqueColumns as $column) {
+            self::assertIdentifier($column, true);
+            if (!in_array($column, $columns, true)) {
+                throw new InvalidArgumentException("Upsert unique column is missing from rows: {$column}");
+            }
+        }
+
+        $updateColumns ??= array_values(array_diff($columns, $uniqueColumns));
+        foreach ($updateColumns as $column) {
+            self::assertIdentifier($column, true);
+            if (!in_array($column, $columns, true)) {
+                throw new InvalidArgumentException("Upsert update column is missing from rows: {$column}");
+            }
+        }
+
+        $quotedColumns = implode(', ', array_map(fn (string $column): string => $this->quote($column), $columns));
+        $rowPlaceholder = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';
+        $sql = 'INSERT INTO ' . $this->quote($this->table)
+            . ' (' . $quotedColumns . ') VALUES '
+            . implode(', ', array_fill(0, count($rows), $rowPlaceholder));
+
+        $driver = Database::driver();
+        if ($driver === 'sqlite') {
+            $conflict = implode(', ', array_map(fn (string $column): string => $this->quote($column), $uniqueColumns));
+            if ($updateColumns === []) {
+                $sql .= ' ON CONFLICT (' . $conflict . ') DO NOTHING';
+            } else {
+                $sets = array_map(
+                    fn (string $column): string => $this->quote($column) . ' = excluded.' . $this->quote($column),
+                    $updateColumns
+                );
+                $sql .= ' ON CONFLICT (' . $conflict . ') DO UPDATE SET ' . implode(', ', $sets);
+            }
+        } elseif ($driver === 'mysql') {
+            if ($updateColumns === []) {
+                $column = $uniqueColumns[0];
+                $sql .= ' ON DUPLICATE KEY UPDATE ' . $this->quote($column) . ' = ' . $this->quote($column);
+            } else {
+                $sets = array_map(
+                    fn (string $column): string => $this->quote($column) . ' = VALUES(' . $this->quote($column) . ')',
+                    $updateColumns
+                );
+                $sql .= ' ON DUPLICATE KEY UPDATE ' . implode(', ', $sets);
+            }
+        } else {
+            throw new InvalidArgumentException("Upsert is not supported by database driver: {$driver}");
+        }
+
+        $bindings = [];
+        foreach ($rows as $row) {
+            array_push($bindings, ...array_values($row));
+        }
+
+        return $this->execute($sql, $bindings)->rowCount();
+    }
+
+    /** @param array<string,mixed> $attributes @param array<string,mixed> $values */
+    public function updateOrInsert(array $attributes, array $values = []): bool
+    {
+        if ($attributes === []) {
+            throw new InvalidArgumentException('updateOrInsert attributes cannot be empty.');
+        }
+
+        $query = clone $this;
+        foreach ($attributes as $column => $value) {
+            $query->where((string) $column, $value);
+        }
+
+        if ($query->exists()) {
+            return $values === [] || $query->update($values) >= 0;
+        }
+
+        $this->insert(array_merge($attributes, $values));
+        return true;
+    }
+
+    /** @param array<string,mixed> $attributes @param array<string,mixed> $values @return array<string,mixed> */
+    public function firstOrCreate(array $attributes, array $values = []): array
+    {
+        if ($attributes === []) {
+            throw new InvalidArgumentException('firstOrCreate attributes cannot be empty.');
+        }
+
+        $query = clone $this;
+        foreach ($attributes as $column => $value) {
+            $query->where((string) $column, $value);
+        }
+
+        $existing = $query->first();
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $data = array_merge($attributes, $values);
+        $id = $this->insert($data);
+
+        $created = clone $this;
+        foreach ($attributes as $column => $value) {
+            $created->where((string) $column, $value);
+        }
+
+        return $created->first() ?? ($id > 0 ? ['id' => $id] + $data : $data);
+    }
+
+    /** @param array<string,mixed> $attributes @param array<string,mixed> $values @return array<string,mixed> */
+    public function firstOrNew(array $attributes, array $values = []): array
+    {
+        if ($attributes === []) {
+            throw new InvalidArgumentException('firstOrNew attributes cannot be empty.');
+        }
+
+        $query = clone $this;
+        foreach ($attributes as $column => $value) {
+            $query->where((string) $column, $value);
+        }
+
+        return $query->first() ?? array_merge($attributes, $values);
+    }
+
     /** @param array<string, mixed> $data */
     public function update(array $data): int
     {
@@ -393,6 +630,43 @@ final class QueryBuilder
             'column' => $column,
             'operator' => $operator,
             'value' => $actualValue,
+            'boolean' => $boolean,
+        ];
+
+        return $this;
+    }
+
+    private function columnWhere(string $boolean, string $first, string $operator, string $second): self
+    {
+        self::assertIdentifier($first, true);
+        self::assertIdentifier($second, true);
+
+        $operator = strtoupper(trim($operator));
+        if (!in_array($operator, ['=', '!=', '<>', '>', '>=', '<', '<='], true)) {
+            throw new InvalidArgumentException("Unsupported column comparison operator: {$operator}");
+        }
+
+        $this->wheres[] = [
+            'type' => 'column',
+            'first' => $first,
+            'operator' => $operator,
+            'second' => $second,
+            'boolean' => $boolean,
+        ];
+
+        return $this;
+    }
+
+    private function existsWhere(string $boolean, QueryBuilder $query, bool $not): self
+    {
+        if ($query === $this) {
+            throw new InvalidArgumentException('A query cannot contain itself as an EXISTS subquery.');
+        }
+
+        $this->wheres[] = [
+            'type' => 'exists',
+            'query' => clone $query,
+            'not' => $not,
             'boolean' => $boolean,
         ];
 
@@ -478,6 +752,22 @@ final class QueryBuilder
                     . implode(', ', array_fill(0, count($values), '?')) . ')';
 
                 array_push($bindings, ...$values);
+                continue;
+            }
+
+            if ($where['type'] === 'column') {
+                $parts[] = $prefix . $this->quote((string) $where['first'])
+                    . ' ' . $where['operator'] . ' '
+                    . $this->quote((string) $where['second']);
+                continue;
+            }
+
+            if ($where['type'] === 'exists') {
+                /** @var QueryBuilder $subquery */
+                $subquery = $where['query'];
+                [$subquerySql, $subqueryBindings] = $subquery->compileSelect();
+                $parts[] = $prefix . ((bool) $where['not'] ? 'NOT EXISTS (' : 'EXISTS (') . $subquerySql . ')';
+                array_push($bindings, ...$subqueryBindings);
                 continue;
             }
 
@@ -584,6 +874,29 @@ final class QueryBuilder
         if ($this->joins !== [] || $this->groups !== [] || $this->havings !== []) {
             throw new InvalidArgumentException('Joined or grouped update/delete operations are not supported.');
         }
+    }
+
+    /** @return array{0:string,1:list<mixed>} */
+    private function compileSelect(): array
+    {
+        [$whereSql, $whereBindings] = $this->whereSql();
+        [$havingSql, $havingBindings] = $this->havingSql();
+
+        $columns = implode(', ', array_map(
+            fn (string $column): string => $this->quoteSelectable($column),
+            $this->columns
+        ));
+
+        $sql = 'SELECT ' . $columns
+            . ' FROM ' . $this->quote($this->table)
+            . $this->joinSql()
+            . $whereSql
+            . $this->groupSql()
+            . $havingSql
+            . $this->orderSql()
+            . $this->limitSql();
+
+        return [$sql, array_merge($whereBindings, $havingBindings)];
     }
 
     /** @param list<mixed> $bindings */
