@@ -4,9 +4,15 @@ declare(strict_types=1);
 
 use SedoPHP\Database\Database;
 use SedoPHP\Database\Model;
+use SedoPHP\Database\ModelFactory;
 use SedoPHP\Database\QueryBuilder;
 use SedoPHP\Database\Schema;
 use SedoPHP\Database\Blueprint;
+use SedoPHP\Database\SeederRunner;
+use SedoPHP\Http\Response;
+use SedoPHP\Routing\Router;
+use SedoPHP\Testing\DatabaseAssertions;
+use SedoPHP\Testing\TestClient;
 use SedoPHP\Database\Relations\BelongsTo;
 use SedoPHP\Database\Relations\BelongsToMany;
 use SedoPHP\Database\Relations\HasMany;
@@ -156,6 +162,16 @@ final class M1Role extends Model
     protected array $fillable = ['name'];
 }
 
+final class M1UserFactory extends ModelFactory
+{
+    protected string $model = M1User::class;
+
+    protected function definition(): array
+    {
+        return ['name' => 'Factory ' . $this->randomString(12)];
+    }
+}
+
 $user = M1User::create(['name' => 'Sedat']);
 $profile = M1Profile::create(['user_id' => $user->getKey(), 'bio' => 'Developer']);
 M1Post::create(['user_id' => $user->getKey(), 'title' => 'Visible']);
@@ -173,6 +189,89 @@ Database::table('m1_role_user')->insert([
     'role_id' => $editor->getKey(),
     'level' => 'member',
 ]);
+
+$test('model factories create native-PHP test data without Faker', static function () use ($expect): void {
+    $made = M1UserFactory::new()->state(['name' => 'Unsaved factory'])->make();
+    $expect($made instanceof M1User);
+    $expect($made->getKey() === null);
+
+    $created = M1UserFactory::new()->count(2)->create();
+    $expect(is_array($created));
+    $expect(count($created) === 2);
+    $expect($created[0] instanceof M1User);
+    $expect($created[0]->getKey() !== null);
+});
+
+$test('seeder runner loads plain PHP seeders from a directory', static function () use ($expect): void {
+    $directory = sys_get_temp_dir() . '/sedophp_seeders_' . getmypid();
+    if (!is_dir($directory)) {
+        mkdir($directory, 0775, true);
+    }
+
+    $file = $directory . '/FeatureSeeder.php';
+    $source = <<<'PHP'
+<?php
+
+declare(strict_types=1);
+
+namespace Database\Seeders;
+
+use SedoPHP\Database\Database;
+use SedoPHP\Database\Seeder;
+
+final class FeatureSeeder extends Seeder
+{
+    public function run(): void
+    {
+        Database::table('m1_settings')->updateOrInsert(
+            ['setting_key' => 'seeded'],
+            ['setting_value' => 'yes']
+        );
+    }
+}
+PHP;
+
+    file_put_contents($file, $source);
+    $expect((new SeederRunner($directory))->run('FeatureSeeder') === 1);
+    $expect(Database::table('m1_settings')->where('setting_key', 'seeded')->value('setting_value') === 'yes');
+
+    @unlink($file);
+    @rmdir($directory);
+});
+
+$test('test client provides HTTP and JSON assertions without PHPUnit', static function () use ($expect): void {
+    $router = new Router();
+    $router->get('/testing/json', static fn (): Response => Response::json([
+        'ok' => true,
+        'user' => ['id' => 7, 'name' => 'Sedat'],
+    ]));
+    $router->get('/testing/redirect', static fn (): Response => Response::redirect('/target'));
+
+    $client = new TestClient($router);
+
+    $client->get('/testing/json')
+        ->assertStatus(200)
+        ->assertHeader('Content-Type', 'application/json; charset=UTF-8')
+        ->assertJson(['ok' => true, 'user' => ['id' => 7]])
+        ->assertJsonPath('user.name', 'Sedat')
+        ->assertSee('"ok":true');
+
+    $client->get('/testing/redirect')->assertRedirect('/target');
+
+    $expect(true);
+});
+
+$test('database assertions check expected and missing rows', static function () use ($expect): void {
+    DatabaseAssertions::assertHas('m1_settings', [
+        'setting_key' => 'seeded',
+        'setting_value' => 'yes',
+    ]);
+    DatabaseAssertions::assertMissing('m1_settings', [
+        'setting_key' => 'definitely_missing',
+    ]);
+
+    $expect(true);
+});
 
 $test('query builder supports upsert and convenience writes', static function () use ($expect): void {
     $table = Database::table('m1_settings');
