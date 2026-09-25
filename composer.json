@@ -37,6 +37,7 @@
       "@php tests/features_020.php",
       "@php tests/features_030.php",
       "@php tests/release_020.php",
+      "@php tests/release_030.php",
       "@php tests/concurrency.php"
     ],
     "lint": "@php tools/lint.php",
