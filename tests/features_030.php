@@ -18,7 +18,11 @@ use SedoPHP\Database\QueryBuilder;
 use SedoPHP\Database\Schema;
 use SedoPHP\Database\Blueprint;
 use SedoPHP\Database\SeederRunner;
+use SedoPHP\Events\EventDispatcher;
+use SedoPHP\Filesystem\Filesystem;
+use SedoPHP\Filesystem\FilesystemDriverInterface;
 use SedoPHP\Http\FormRequest;
+use SedoPHP\Http\HttpClient;
 use SedoPHP\Http\Request;
 use SedoPHP\Http\Response;
 use SedoPHP\Middleware\RequestIdMiddleware;
@@ -767,6 +771,179 @@ $test('query diagnostics log SQL metadata without binding values', static functi
     }
 
     @unlink($file);
+});
+
+$test('event dispatcher handles object and named events synchronously', static function () use ($expect): void {
+    EventDispatcher::clear();
+
+    $seen = [];
+    EventDispatcher::listen(stdClass::class, static function (stdClass $event) use (&$seen): string {
+        $seen[] = $event->name;
+        return 'object-listener';
+    });
+    EventDispatcher::listen('feature.named', static function (array $payload) use (&$seen): string {
+        $seen[] = $payload['name'] ?? '';
+        return 'named-listener';
+    });
+
+    $object = new stdClass();
+    $object->name = 'object';
+
+    $objectResults = EventDispatcher::dispatch($object);
+    $namedResults = EventDispatcher::dispatch('feature.named', ['name' => 'named']);
+
+    $expect($seen === ['object', 'named']);
+    $expect($objectResults === ['object-listener']);
+    $expect($namedResults === ['named-listener']);
+
+    EventDispatcher::clear();
+});
+
+$test('local filesystem driver stores files safely and blocks traversal', static function () use ($expect): void {
+    $root = sys_get_temp_dir() . '/sedophp_storage_' . getmypid();
+    if (!is_dir($root)) {
+        mkdir($root, 0775, true);
+    }
+
+    Filesystem::configure(['path' => $root], dirname(__DIR__));
+    $expect(Filesystem::driver() instanceof FilesystemDriverInterface);
+
+    storage()->put('reports/daily.txt', 'hello storage');
+    $expect(storage()->exists('reports/daily.txt'));
+    $expect(storage()->get('reports/daily.txt') === 'hello storage');
+    $expect(storage()->size('reports/daily.txt') === strlen('hello storage'));
+    $expect(storage()->files('reports') === ['daily.txt']);
+
+    $blocked = false;
+    try {
+        storage()->put('../outside.txt', 'blocked');
+    } catch (RuntimeException) {
+        $blocked = true;
+    }
+    $expect($blocked);
+
+    $expect(storage()->delete('reports/daily.txt'));
+    @rmdir($root . '/reports');
+    @rmdir($root);
+});
+
+$test('HTTP client supports stream fallback and cURL when available', static function () use ($expect): void {
+    if (!function_exists('proc_open') || !function_exists('stream_socket_server')) {
+        $expect(true);
+        return;
+    }
+
+    $directory = sys_get_temp_dir() . '/sedophp_http_' . getmypid();
+    if (!is_dir($directory)) {
+        mkdir($directory, 0775, true);
+    }
+
+    $fixture = <<<'PHP'
+<?php
+header('Content-Type: application/json');
+echo json_encode([
+    'method' => $_SERVER['REQUEST_METHOD'] ?? '',
+    'query' => $_GET,
+    'body' => json_decode((string) file_get_contents('php://input'), true),
+    'authorization' => $_SERVER['HTTP_AUTHORIZATION'] ?? null,
+], JSON_THROW_ON_ERROR);
+PHP;
+    file_put_contents($directory . '/index.php', $fixture);
+
+    $socket = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
+    if ($socket === false) {
+        @unlink($directory . '/index.php');
+        @rmdir($directory);
+        $expect(true);
+        return;
+    }
+
+    $address = (string) stream_socket_get_name($socket, false);
+    fclose($socket);
+    $port = (int) substr($address, (int) strrpos($address, ':') + 1);
+
+    $command = escapeshellarg(PHP_BINARY)
+        . ' -S ' . escapeshellarg('127.0.0.1:' . $port)
+        . ' -t ' . escapeshellarg($directory);
+
+    $process = proc_open($command, [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ], $pipes);
+
+    if (!is_resource($process)) {
+        @unlink($directory . '/index.php');
+        @rmdir($directory);
+        $expect(true);
+        return;
+    }
+
+    try {
+        foreach ($pipes as $pipe) {
+            if (is_resource($pipe)) {
+                stream_set_blocking($pipe, false);
+            }
+        }
+
+        $url = 'http://127.0.0.1:' . $port . '/index.php';
+        $streamResponse = null;
+
+        for ($attempt = 0; $attempt < 20; $attempt++) {
+            try {
+                $streamResponse = (new HttpClient())
+                    ->transport('stream')
+                    ->timeout(2)
+                    ->bearer('test-token')
+                    ->get($url, ['q' => 'hello']);
+                break;
+            } catch (RuntimeException) {
+                usleep(100000);
+            }
+        }
+
+        $expect($streamResponse !== null);
+        $expect($streamResponse->status() === 200);
+        $expect($streamResponse->successful());
+        $expect($streamResponse->header('content-type') === 'application/json');
+        $streamJson = $streamResponse->json();
+        $expect(($streamJson['method'] ?? null) === 'GET');
+        $expect(($streamJson['query']['q'] ?? null) === 'hello');
+        $expect(($streamJson['authorization'] ?? null) === 'Bearer test-token');
+
+        $jsonResponse = (new HttpClient())
+            ->transport('stream')
+            ->timeout(2)
+            ->postJson($url, ['name' => 'Sedat']);
+        $expect(($jsonResponse->json()['body']['name'] ?? null) === 'Sedat');
+
+        if (function_exists('curl_init')) {
+            $curlResponse = (new HttpClient())
+                ->transport('curl')
+                ->timeout(2)
+                ->get($url);
+            $expect($curlResponse->status() === 200);
+        }
+
+        $invalidBlocked = false;
+        try {
+            (new HttpClient())->get('file:///etc/passwd');
+        } catch (InvalidArgumentException) {
+            $invalidBlocked = true;
+        }
+        $expect($invalidBlocked);
+    } finally {
+        proc_terminate($process);
+        foreach ($pipes as $pipe) {
+            if (is_resource($pipe)) {
+                fclose($pipe);
+            }
+        }
+        proc_close($process);
+
+        @unlink($directory . '/index.php');
+        @rmdir($directory);
+    }
 });
 
 $test('custom console kernel discovers and runs plain PHP commands', static function () use ($expect): void {
