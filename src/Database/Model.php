@@ -529,7 +529,7 @@ abstract class Model implements ArrayAccess, JsonSerializable
                     }
                 }
                 if ($children !== []) {
-                    $class::eagerLoad($children, $nested);
+                    self::eagerLoad($children, $nested);
                 }
             }
             return;
@@ -556,7 +556,7 @@ abstract class Model implements ArrayAccess, JsonSerializable
             }
 
             if ($nested !== null && $indexed !== []) {
-                $class::eagerLoad(array_values($indexed), $nested);
+                self::eagerLoad(array_values($indexed), $nested);
             }
             return;
         }
@@ -615,7 +615,7 @@ abstract class Model implements ArrayAccess, JsonSerializable
                     array_push($children, ...$model->get($name, []));
                 }
                 if ($children !== []) {
-                    $class::eagerLoad($children, $nested);
+                    self::eagerLoad($children, $nested);
                 }
             }
             return;
