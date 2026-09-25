@@ -20,6 +20,7 @@ use SedoPHP\Routing\Route;
 use SedoPHP\Security\Csrf;
 use SedoPHP\Security\Jwt;
 use SedoPHP\Security\RateLimiter;
+use SedoPHP\Security\SignedUrl;
 use SedoPHP\Session\Session;
 use SedoPHP\Validation\Validator;
 use SedoPHP\View\View;
@@ -144,6 +145,29 @@ if (!function_exists('url')) {
         }
 
         return rtrim($base, '/') . ($path === '' ? '' : '/' . ltrim($path, '/'));
+    }
+}
+
+if (!function_exists('route')) {
+    /** @param array<string,mixed> $parameters */
+    function route(string $name, array $parameters = [], bool $absolute = true): string
+    {
+        $path = app()->router()->pathFor($name, $parameters);
+        return $absolute ? url($path) : $path;
+    }
+}
+
+if (!function_exists('signed_route')) {
+    /** @param array<string,mixed> $parameters */
+    function signed_route(
+        string $name,
+        array $parameters = [],
+        DateTimeInterface|string|null $expiresAt = null,
+        bool $absolute = true,
+    ): string {
+        $path = app()->router()->pathFor($name, $parameters);
+        $signed = SignedUrl::sign($path, $expiresAt);
+        return $absolute ? url($signed) : $signed;
     }
 }
 
