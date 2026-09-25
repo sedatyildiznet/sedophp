@@ -217,7 +217,7 @@ Before the release candidate, all planned features must be frozen. The RC phase 
 - [x] M2 — Seeders, factories and application testing.
 - [x] M3 — Routing and authentication primitives.
 - [x] M4 — CLI and developer experience.
-- [ ] M5 — Production diagnostics and logging.
+- [x] M5 — Production diagnostics and logging.
 - [ ] M6 — Cache, queue and scheduler contracts.
 - [ ] M7 — Events, filesystem and HTTP client.
 - [ ] M8 — Optimization and doctor.
