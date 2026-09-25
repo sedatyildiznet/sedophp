@@ -17,6 +17,7 @@ use SedoPHP\Middleware\CorsMiddleware;
 use SedoPHP\Middleware\GuestMiddleware;
 use SedoPHP\Middleware\JwtMiddleware;
 use SedoPHP\Middleware\RateLimitMiddleware;
+use SedoPHP\Middleware\RequestIdMiddleware;
 use SedoPHP\Middleware\SecurityHeadersMiddleware;
 use SedoPHP\Middleware\SignedUrlMiddleware;
 use SedoPHP\Queue\Queue;
@@ -43,7 +44,7 @@ final class Application
         );
 
         date_default_timezone_set((string) Config::get('app.timezone', 'UTC'));
-        Logger::configure($this->path('storage/logs/app.log'));
+        Logger::configure((array) Config::get('logging', []), $this->basePath);
         ErrorHandler::register((bool) Config::get('app.debug', false));
 
         Session::configure((array) Config::get('session', []));
@@ -64,6 +65,7 @@ final class Application
         $this->router->alias('csrf', CsrfMiddleware::class);
         $this->router->alias('cors', CorsMiddleware::class);
         $this->router->alias('throttle', RateLimitMiddleware::class);
+        $this->router->alias('request_id', RequestIdMiddleware::class);
         $this->router->alias('token', ApiTokenMiddleware::class);
         $this->router->alias('jwt', JwtMiddleware::class);
         $this->router->alias('security', SecurityHeadersMiddleware::class);
@@ -74,6 +76,8 @@ final class Application
                 $this->router->alias($name, $middleware);
             }
         }
+
+        $this->router->middleware('request_id');
 
         foreach ((array) Config::get('middleware.global', ['cors', 'security']) as $middleware) {
             if (is_string($middleware) && $middleware !== '') {
