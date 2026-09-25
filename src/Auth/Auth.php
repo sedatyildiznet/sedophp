@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace SedoPHP\Auth;
 
+use InvalidArgumentException;
 use SedoPHP\Database\Database;
 use SedoPHP\Security\Csrf;
+use SedoPHP\Security\RateLimiter;
 use SedoPHP\Session\Session;
 
 final class Auth
@@ -24,6 +26,17 @@ final class Auth
 
     public static function attempt(string $identity, string $password): bool
     {
+        $maxAttempts = max(0, (int) (self::$config['login_max_attempts'] ?? 5));
+        $decaySeconds = max(1, (int) (self::$config['login_decay_seconds'] ?? 60));
+        $throttleKey = self::loginThrottleKey($identity);
+
+        if ($maxAttempts > 0) {
+            $limit = RateLimiter::hit($throttleKey, $maxAttempts, $decaySeconds);
+            if (!$limit['allowed']) {
+                return false;
+            }
+        }
+
         $table = (string) (self::$config['table'] ?? 'users');
         $identityColumn = (string) (self::$config['identity'] ?? 'email');
         $passwordColumn = (string) (self::$config['password'] ?? 'password');
@@ -40,11 +53,37 @@ final class Auth
             ]);
         }
 
+        if ($maxAttempts > 0) {
+            RateLimiter::clear($throttleKey);
+        }
+
         Session::regenerate();
         Csrf::regenerate();
         Session::set((string) (self::$config['session_key'] ?? '_sedo_auth_id'), $row[$idColumn]);
         self::$cachedUser = self::sanitize($row);
         return true;
+    }
+
+    public static function clearLoginAttempts(string $identity): void
+    {
+        RateLimiter::clear(self::loginThrottleKey($identity));
+    }
+
+    public static function resetPassword(int|string $id, string $password): bool
+    {
+        if ($password === '') {
+            throw new InvalidArgumentException('Password cannot be empty.');
+        }
+
+        $table = (string) (self::$config['table'] ?? 'users');
+        $idColumn = (string) (self::$config['id'] ?? 'id');
+        $passwordColumn = (string) (self::$config['password'] ?? 'password');
+
+        $updated = Database::table($table)
+            ->where($idColumn, $id)
+            ->update([$passwordColumn => password_hash($password, PASSWORD_DEFAULT)]);
+
+        return $updated > 0;
     }
 
     public static function check(): bool
@@ -95,6 +134,11 @@ final class Auth
     public static function loginPath(): string
     {
         return (string) (self::$config['login_path'] ?? '/login');
+    }
+
+    private static function loginThrottleKey(string $identity): string
+    {
+        return 'auth-login:' . hash('sha256', strtolower(trim($identity)));
     }
 
     /** @param array<string, mixed> $row @return array<string, mixed> */
