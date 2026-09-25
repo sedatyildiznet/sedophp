@@ -220,7 +220,7 @@ Before the release candidate, all planned features must be frozen. The RC phase 
 - [x] M5 — Production diagnostics and logging.
 - [x] M6 — Cache, queue and scheduler contracts.
 - [x] M7 — Events, filesystem and HTTP client.
-- [ ] M8 — Optimization and doctor.
+- [x] M8 — Optimization and doctor.
 - [ ] M9 — Documentation, examples and benchmarks.
 - [ ] Release candidate regression pass.
 - [ ] Stable 0.3.0 release.
