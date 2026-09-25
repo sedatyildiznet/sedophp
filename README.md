@@ -4,7 +4,7 @@
 
 SedoPHP is a small PHP 8.3+ framework designed around readable PHP, shared hosting, predictable behavior and almost no setup. It deliberately avoids a large dependency tree, template-language lock-in and hidden application magic.
 
-> Status: **0.2.0 stable**
+> Status: **0.2.1 stable**
 
 ## What makes it different?
 
@@ -277,9 +277,16 @@ GitHub Actions currently checks:
 
 ## Stability
 
-SedoPHP 0.2.0 is the current stable release. It keeps the dependency-light, shared-hosting-first 0.1 API while adding production-ready routing, database, validation, queue, scheduler and API features. Patch releases may fix bugs and security issues without intentionally breaking documented 0.2 APIs.
+SedoPHP 0.2.1 is the current stable release. It keeps the dependency-light, shared-hosting-first 0.1 API while adding production-ready routing, database, validation, queue, scheduler and API features. Patch releases may fix bugs and security issues without intentionally breaking documented 0.2 APIs.
 
 Provider-specific Apache, LiteSpeed and cPanel configurations can still differ. Use `php sedo doctor` and the shared-hosting verification checklist when deploying to a new provider.
+
+
+## Citation
+
+If you use SedoPHP in academic work, research or a publication, cite the project using GitHub's **Cite this repository** feature or the Zenodo DOI for the relevant release.
+
+Citation metadata is maintained in [CITATION.cff](CITATION.cff) and is linked to Sedat Yıldız's [ORCID](https://orcid.org/0009-0002-5777-1669).
 
 ## License
 

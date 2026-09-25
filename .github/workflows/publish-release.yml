@@ -77,3 +77,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "SedoPHP $VERSION" \
             --notes-file /tmp/release-notes.md
+# Release trigger marker: 0.2.1
