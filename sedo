@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 use SedoPHP\Cache\Cache;
 use SedoPHP\Console\ConsoleKernel;
+use SedoPHP\Console\Doctor;
 use SedoPHP\Core\Config;
 use SedoPHP\Core\Optimizer;
 use SedoPHP\Database\Database;
@@ -335,48 +336,7 @@ $redactConfig = static function (mixed $value, ?string $key = null) use (&$redac
     return $result;
 };
 
-$doctor = static function () use ($app): int {
-    $checks = [];
-
-    $checks[] = ['PHP >= 8.3', version_compare(PHP_VERSION, '8.3.0', '>='), PHP_VERSION];
-    $checks[] = ['PDO extension', extension_loaded('pdo'), extension_loaded('pdo') ? 'loaded' : 'missing'];
-
-    $driver = (string) config('database.driver', 'mysql');
-    $pdoDrivers = PDO::getAvailableDrivers();
-    $checks[] = ["PDO driver: {$driver}", in_array($driver, $pdoDrivers, true), implode(', ', $pdoDrivers) ?: 'none'];
-    $checks[] = ['.env file', is_file($app->path('.env')), is_file($app->path('.env')) ? 'found' : 'missing (copy .env.example)'];
-    $checks[] = ['storage/logs writable', is_writable($app->path('storage/logs')), $app->path('storage/logs')];
-    $checks[] = ['storage/cache writable', is_writable($app->path('storage/cache')), $app->path('storage/cache')];
-
-    $rewrite = 'unknown outside Apache';
-    $rewriteOk = true;
-    if (function_exists('apache_get_modules')) {
-        $rewriteOk = in_array('mod_rewrite', apache_get_modules(), true);
-        $rewrite = $rewriteOk ? 'mod_rewrite loaded' : 'mod_rewrite missing';
-    }
-    $checks[] = ['Apache rewrite', $rewriteOk, $rewrite];
-
-    $dbOk = false;
-    $dbMessage = 'not checked';
-    try {
-        Database::pdo()->query('SELECT 1');
-        $dbOk = true;
-        $dbMessage = 'connection successful';
-    } catch (Throwable $e) {
-        $dbMessage = $e->getMessage();
-    }
-    $checks[] = ['Database connection', $dbOk, $dbMessage];
-
-    $failed = 0;
-    foreach ($checks as [$label, $ok, $detail]) {
-        echo ($ok ? '[OK]   ' : '[FAIL] ') . str_pad($label, 24) . ' ' . $detail . PHP_EOL;
-        if (!$ok) {
-            $failed++;
-        }
-    }
-
-    return $failed === 0 ? 0 : 1;
-};
+$doctor = static fn (): int => Doctor::run($app);
 
 switch ($command) {
     case 'serve':
