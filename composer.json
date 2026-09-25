@@ -39,7 +39,8 @@
       "@php tests/release_020.php",
       "@php tests/concurrency.php"
     ],
-    "lint": "@php tools/lint.php"
+    "lint": "@php tools/lint.php",
+    "benchmark": "@php tools/benchmark.php"
   },
   "minimum-stability": "stable",
   "prefer-stable": true
