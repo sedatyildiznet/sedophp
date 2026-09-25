@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## Unreleased — 0.3.0-dev
+
+### Architecture and planning
+
+- defined the 0.3 development contract around plain PHP, shared hosting and dependency-free runtime defaults
+- documented the 0.3 milestone plan and stable-release gates
+- explicitly kept Composer optional on production servers
+- documented that Node.js, Redis, external services and permanent daemons will not become core runtime requirements
 
 ### Documentation and project metadata
 
