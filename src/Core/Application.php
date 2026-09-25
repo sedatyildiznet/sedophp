@@ -37,7 +37,10 @@ final class Application
         self::$instance = $this;
 
         Env::load($this->path('.env'));
-        Config::load($this->path('config'));
+        Config::load(
+            $this->path('config'),
+            Optimizer::configFile($this->basePath)
+        );
 
         date_default_timezone_set((string) Config::get('app.timezone', 'UTC'));
         Logger::configure($this->path('storage/logs/app.log'));
