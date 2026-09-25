@@ -18,6 +18,7 @@ use SedoPHP\Middleware\GuestMiddleware;
 use SedoPHP\Middleware\JwtMiddleware;
 use SedoPHP\Middleware\RateLimitMiddleware;
 use SedoPHP\Middleware\SecurityHeadersMiddleware;
+use SedoPHP\Middleware\SignedUrlMiddleware;
 use SedoPHP\Queue\Queue;
 use SedoPHP\Routing\Router;
 use SedoPHP\Security\Jwt;
@@ -63,6 +64,7 @@ final class Application
         $this->router->alias('token', ApiTokenMiddleware::class);
         $this->router->alias('jwt', JwtMiddleware::class);
         $this->router->alias('security', SecurityHeadersMiddleware::class);
+        $this->router->alias('signed', SignedUrlMiddleware::class);
 
         foreach ((array) Config::get('middleware.aliases', []) as $name => $middleware) {
             if (is_string($name) && is_string($middleware)) {
