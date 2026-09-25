@@ -9,6 +9,18 @@
 - explicitly kept Composer optional on production servers
 - documented that Node.js, Redis, external services and permanent daemons will not become core runtime requirements
 
+### Database and models
+
+- added hasOne and belongsToMany relationships with pivot metadata and pivot attach/detach/sync operations
+- added nested and constrained eager loading
+- added opt-in soft deletes with withTrashed, onlyTrashed, restore and forceDelete
+- added upsert, updateOrInsert, firstOrCreate and firstOrNew query helpers
+- added chunk and cursor iteration for bounded result processing
+- added column comparisons and EXISTS/NOT EXISTS subqueries
+- added nested transaction savepoints and opt-in retry attempts for retryable transaction failures
+- added schema helpers for soft deletes, column renames, index removal and foreign keys
+- enabled SQLite foreign-key enforcement by default with an explicit configuration opt-out
+
 ### Documentation and project metadata
 
 - added Zenodo DOI badge and DOI citation metadata
