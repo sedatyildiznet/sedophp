@@ -1,5 +1,107 @@
 # Changelog
 
+## 0.3.0 — 2026-09-25
+
+### Architecture and planning
+
+- defined the 0.3 development contract around plain PHP, shared hosting and dependency-free runtime defaults
+- documented the 0.3 milestone plan and stable-release gates
+- explicitly kept Composer optional on production servers
+- documented that Node.js, Redis, external services and permanent daemons will not become core runtime requirements
+
+### Database and models
+
+- added hasOne and belongsToMany relationships with pivot metadata and pivot attach/detach/sync operations
+- added nested and constrained eager loading
+- added opt-in soft deletes with withTrashed, onlyTrashed, restore and forceDelete
+- added upsert, updateOrInsert, firstOrCreate and firstOrNew query helpers
+- added chunk and cursor iteration for bounded result processing
+- added column comparisons and EXISTS/NOT EXISTS subqueries
+- added nested transaction savepoints and opt-in retry attempts for retryable transaction failures
+- added schema helpers for soft deletes, column renames, index removal and foreign keys
+- enabled SQLite foreign-key enforcement by default with an explicit configuration opt-out
+
+### Testing and test data
+
+- added plain-PHP seeders with make:seeder and db:seed CLI commands
+- added dependency-free model factories and a make:factory generator
+- added direct Router-based HTTP testing with status, header, body, JSON-path and redirect assertions
+- added database row presence and absence assertions
+- registered seeder and factory namespaces in both Composer and the fallback autoloader
+
+### Routing, requests and authentication
+
+- added named routes and URL generation with encoded route parameters
+- added HMAC-signed URLs, optional expiration and a signed-route middleware
+- added APP_KEY configuration for URL signatures
+- added optional FormRequest validation classes while retaining the existing validate() helper
+- added cache-backed hashed one-time tokens for password reset and email verification
+- added single-use token consumption and explicit revocation
+- added configurable session-login throttling using the existing rate limiter
+- added password reset support without introducing an authentication UI or external identity dependency
+
+### CLI and developer experience
+
+- added generators for middleware, FormRequest classes, jobs and application console commands
+- added convention-based application console commands without a service-provider or DI requirement
+- added cache:clear and redacted config:show commands
+- added routes as a compatible alias for route:list and displayed route names in route listings
+- added optional optimize and optimize:clear commands
+- added compiled plain-PHP configuration cache and a route metadata manifest
+- extended linting to include the root sedo CLI executable
+
+### Production diagnostics and logging
+
+- added configurable text or JSON structured logging with log levels
+- added recursive redaction for common sensitive logging context keys
+- added request IDs across request attributes, response headers, logs and framework error responses
+- added opt-in database query timing and slow-query diagnostics
+- query diagnostics record SQL placeholders and binding counts without logging binding values
+- kept database diagnostics disabled by default for low production overhead
+
+### Cache, queue and scheduler infrastructure
+
+- added a cache driver contract with the dependency-free file driver as the default
+- added a queue driver contract with the database driver as the default
+- added unique queued jobs with database-level uniqueness protection
+- added opt-in exponential retry backoff while preserving linear backoff as the default
+- added stable scheduler task names and before/after/onSuccess/onFailure lifecycle hooks
+- added scheduler execution result and duration logging
+- kept cron-based one-shot queue and scheduler execution fully supported
+
+### Events, filesystem and HTTP
+
+- added a minimal synchronous event dispatcher for object and named events
+- added a local filesystem driver with traversal protection and a replaceable filesystem contract
+- added storage() helper access without introducing cloud SDK dependencies
+- added a small outbound HTTP client with fluent headers, timeouts, bearer auth, form and JSON requests
+- added automatic cURL usage with a native PHP stream fallback
+- kept ext-curl optional and disabled automatic redirect following
+
+### Optimization and environment doctor
+
+- retained optional plain-PHP configuration and route metadata optimization caches
+- expanded sedo doctor with PHP, extension, storage, database, security, queue, scheduler and mail checks
+- added PASS/WARN/FAIL/INFO doctor statuses so optional features do not break deployment validation
+- added production warnings for debug mode, insecure HTTPS sessions and query logging
+- kept optimization and terminal access optional for shared-hosting deployments
+
+### Documentation, examples and benchmarks
+
+- added a 0.2 to 0.3 upgrade guide focused on backward-compatible deployment
+- added a complete posts API example covering relations, validation, API tokens, queueing, mail, scheduler and testing
+- added a local benchmark tool for bootstrap, configuration reads, route generation, SQLite reads and model hydration
+- added benchmark smoke execution to the PHP 8.3 CI job without performance thresholds
+- refreshed README and API documentation for the 0.3 development line
+
+### Documentation and project metadata
+
+- added Zenodo DOI badge and DOI citation metadata
+- reorganized README around installation, features, deployment, security and citation
+- updated the 0.2 security/support policy
+- expanded contribution guidance with cross-platform test commands
+- added a project code of conduct
+
 ## 0.2.1 — 2026-09-15
 
 ### Documentation and metadata

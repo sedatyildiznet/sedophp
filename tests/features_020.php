@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use SedoPHP\Auth\ApiToken;
 use SedoPHP\Cache\Cache;
+use SedoPHP\Cache\CacheDriverInterface;
+use SedoPHP\Core\Logger;
 use SedoPHP\Database\Database;
 use SedoPHP\Database\MigrationRunner;
 use SedoPHP\Database\Model;
@@ -14,6 +16,7 @@ use SedoPHP\Http\Response;
 use SedoPHP\Mail\Mailer;
 use SedoPHP\Queue\JobInterface;
 use SedoPHP\Queue\Queue;
+use SedoPHP\Queue\QueueDriverInterface;
 use SedoPHP\Scheduling\Schedule;
 use SedoPHP\Security\Jwt;
 use SedoPHP\Security\RateLimiter;
@@ -106,6 +109,70 @@ final class FailingFeatureJob implements JobInterface
     }
 }
 
+final class MemoryFeatureCacheDriver implements CacheDriverInterface
+{
+    private array $values = [];
+
+    public function get(string $key, mixed $default = null): mixed
+    {
+        return $this->values[$key] ?? $default;
+    }
+
+    public function has(string $key): bool
+    {
+        return array_key_exists($key, $this->values);
+    }
+
+    public function put(string $key, mixed $value, ?int $ttlSeconds = null): void
+    {
+        $this->values[$key] = $value;
+    }
+
+    public function add(string $key, mixed $value, int $ttlSeconds): bool
+    {
+        if ($this->has($key)) {
+            return false;
+        }
+
+        $this->values[$key] = $value;
+        return true;
+    }
+
+    public function remember(string $key, int $ttlSeconds, callable $callback): mixed
+    {
+        if ($this->has($key)) {
+            return $this->values[$key];
+        }
+
+        return $this->values[$key] = $callback();
+    }
+
+    public function forget(string $key): void
+    {
+        unset($this->values[$key]);
+    }
+
+    public function pull(string $key, mixed $default = null): mixed
+    {
+        $value = $this->values[$key] ?? $default;
+        unset($this->values[$key]);
+        return $value;
+    }
+
+    public function clear(): int
+    {
+        $count = count($this->values);
+        $this->values = [];
+        return $count;
+    }
+
+    public function increment(string $key, int $amount = 1, int $ttlSeconds = 60): int
+    {
+        $this->values[$key] = (int) ($this->values[$key] ?? 0) + $amount;
+        return $this->values[$key];
+    }
+}
+
 $test('file cache supports TTL, remember and atomic increment', static function () use ($expect): void {
     Cache::put('name', 'Sedat', 60);
     $expect(Cache::get('name') === 'Sedat');
@@ -125,6 +192,18 @@ $test('file cache supports TTL, remember and atomic increment', static function 
     $expect(Cache::increment('counter', 2, 60) === 3);
     $expect(Cache::add('lock', true, 60));
     $expect(!Cache::add('lock', true, 60));
+});
+
+$test('cache driver is replaceable without changing the cache API', static function () use ($expect, $cacheDirectory): void {
+    $driver = new MemoryFeatureCacheDriver();
+    Cache::useDriver($driver);
+
+    $expect(Cache::driver() instanceof CacheDriverInterface);
+    Cache::put('driver-test', 'memory', 60);
+    $expect(Cache::get('driver-test') === 'memory');
+    $expect(Cache::increment('driver-counter', 2, 60) === 2);
+
+    Cache::configure(['path' => $cacheDirectory, 'prefix' => 'test_'], dirname(__DIR__));
 });
 
 $test('JWT signs, validates and rejects tampering', static function () use ($expect): void {
@@ -283,6 +362,55 @@ $test('queue recovers stale reservations and supports failed-job operations', st
     $expect(Queue::flushFailed() === 1);
 });
 
+$test('queue driver supports unique jobs and exponential backoff', static function () use ($expect): void {
+    $expect(Queue::driver() instanceof QueueDriverInterface);
+
+    FeatureJob::$handled = [];
+    $first = Queue::pushUnique('feature:unique:99', FeatureJob::class, ['id' => 99]);
+    $second = Queue::pushUnique('feature:unique:99', FeatureJob::class, ['id' => 99]);
+
+    $expect($first === $second);
+    $expect(Database::table('jobs')->where('unique_key', 'feature:unique:99')->count() === 1);
+    $expect(Queue::work(5) === 1);
+    $expect(Database::table('jobs')->where('unique_key', 'feature:unique:99')->count() === 0);
+
+    $failedId = Queue::push(
+        FailingFeatureJob::class,
+        [],
+        0,
+        3,
+        'default',
+        2,
+        60,
+        null,
+        'exponential'
+    );
+
+    $expect(Queue::work(1) === 1);
+    $firstFailure = Database::table('jobs')->where('id', $failedId)->first();
+    $expect(($firstFailure['attempts'] ?? null) === 1);
+    $firstDelay = strtotime((string) ($firstFailure['available_at'] ?? '')) - time();
+    $expect($firstDelay >= 0 && $firstDelay <= 3);
+
+    Database::table('jobs')->where('id', $failedId)->update([
+        'available_at' => gmdate('Y-m-d H:i:s'),
+    ]);
+
+    $expect(Queue::work(1) === 1);
+    $secondFailure = Database::table('jobs')->where('id', $failedId)->first();
+    $expect(($secondFailure['attempts'] ?? null) === 2);
+    $secondDelay = strtotime((string) ($secondFailure['available_at'] ?? '')) - time();
+    $expect($secondDelay >= 2 && $secondDelay <= 5);
+
+    Database::table('jobs')->where('id', $failedId)->update([
+        'available_at' => gmdate('Y-m-d H:i:s'),
+    ]);
+
+    $expect(Queue::work(1) === 1);
+    $expect(Database::table('jobs')->where('id', $failedId)->whereNotNull('failed_at')->exists());
+    $expect(Queue::flushFailed() === 1);
+});
+
 $test('scheduler runs due callbacks', static function () use ($expect): void {
     $runs = 0;
     $schedule = new Schedule();
@@ -294,6 +422,76 @@ $test('scheduler runs due callbacks', static function () use ($expect): void {
     $expect($count === 1 && $runs === 1);
     $expect($schedule->runDue(new DateTimeImmutable('2026-09-14 03:15:30')) === 0);
     $expect($runs === 1);
+});
+
+$test('scheduler names hooks and logs execution results', static function () use ($expect): void {
+    $events = [];
+    $logFile = sys_get_temp_dir() . '/sedophp-schedule-' . getmypid() . '.log';
+    @unlink($logFile);
+
+    Logger::configure([
+        'path' => $logFile,
+        'format' => 'json',
+        'level' => 'info',
+    ]);
+
+    $schedule = new Schedule();
+    $schedule->call(static function () use (&$events): void {
+        $events[] = 'run';
+    })
+        ->name('feature.cleanup')
+        ->description('feature cleanup')
+        ->before(static function () use (&$events): void {
+            $events[] = 'before';
+        })
+        ->onSuccess(static function () use (&$events): void {
+            $events[] = 'success';
+        })
+        ->after(static function () use (&$events): void {
+            $events[] = 'after';
+        });
+
+    $expect($schedule->runDue(new DateTimeImmutable('2026-09-14 05:00:00')) === 1);
+    $expect($events === ['before', 'run', 'success', 'after']);
+
+    $lines = array_values(array_filter(file($logFile, FILE_IGNORE_NEW_LINES) ?: []));
+    $payload = json_decode((string) end($lines), true, 512, JSON_THROW_ON_ERROR);
+
+    $expect(($payload['message'] ?? null) === 'Scheduled task completed');
+    $expect(($payload['context']['task'] ?? null) === 'feature.cleanup');
+    $expect(($payload['context']['result'] ?? null) === 'success');
+    $expect(isset($payload['context']['duration_ms']));
+
+    $failureEvents = [];
+    $failureSchedule = new Schedule();
+    $failureSchedule->call(static function (): void {
+        throw new RuntimeException('expected scheduled failure');
+    })
+        ->name('feature.failure')
+        ->onFailure(static function (Throwable $exception) use (&$failureEvents): void {
+            $failureEvents[] = $exception->getMessage();
+        })
+        ->after(static function () use (&$failureEvents): void {
+            $failureEvents[] = 'after';
+        });
+
+    $thrown = false;
+    try {
+        $failureSchedule->runDue(new DateTimeImmutable('2026-09-14 05:01:00'));
+    } catch (RuntimeException $exception) {
+        $thrown = $exception->getMessage() === 'expected scheduled failure';
+    }
+
+    $expect($thrown);
+    $expect($failureEvents === ['expected scheduled failure', 'after']);
+
+    $lines = array_values(array_filter(file($logFile, FILE_IGNORE_NEW_LINES) ?: []));
+    $failedPayload = json_decode((string) end($lines), true, 512, JSON_THROW_ON_ERROR);
+    $expect(($failedPayload['message'] ?? null) === 'Scheduled task failed');
+    $expect(($failedPayload['context']['task'] ?? null) === 'feature.failure');
+    $expect(($failedPayload['context']['result'] ?? null) === 'failure');
+
+    @unlink($logFile);
 });
 
 $test('scheduler supports cron expressions and timezones', static function () use ($expect): void {

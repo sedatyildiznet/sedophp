@@ -8,6 +8,7 @@ use RuntimeException;
 use SedoPHP\Auth\Auth;
 use SedoPHP\Cache\Cache;
 use SedoPHP\Database\Database;
+use SedoPHP\Filesystem\Filesystem;
 use SedoPHP\Http\Request;
 use SedoPHP\Mail\Mailer;
 use SedoPHP\Middleware\ApiTokenMiddleware;
@@ -17,7 +18,9 @@ use SedoPHP\Middleware\CorsMiddleware;
 use SedoPHP\Middleware\GuestMiddleware;
 use SedoPHP\Middleware\JwtMiddleware;
 use SedoPHP\Middleware\RateLimitMiddleware;
+use SedoPHP\Middleware\RequestIdMiddleware;
 use SedoPHP\Middleware\SecurityHeadersMiddleware;
+use SedoPHP\Middleware\SignedUrlMiddleware;
 use SedoPHP\Queue\Queue;
 use SedoPHP\Routing\Router;
 use SedoPHP\Security\Jwt;
@@ -36,10 +39,13 @@ final class Application
         self::$instance = $this;
 
         Env::load($this->path('.env'));
-        Config::load($this->path('config'));
+        Config::load(
+            $this->path('config'),
+            Optimizer::configFile($this->basePath)
+        );
 
         date_default_timezone_set((string) Config::get('app.timezone', 'UTC'));
-        Logger::configure($this->path('storage/logs/app.log'));
+        Logger::configure((array) Config::get('logging', []), $this->basePath);
         ErrorHandler::register((bool) Config::get('app.debug', false));
 
         Session::configure((array) Config::get('session', []));
@@ -51,6 +57,7 @@ final class Application
         Jwt::configure((array) Config::get('auth', []));
         HttpSecurity::configure((array) Config::get('security', []));
         Cache::configure((array) Config::get('cache', []), $this->basePath);
+        Filesystem::configure((array) Config::get('filesystem', []), $this->basePath);
         Mailer::configure((array) Config::get('mail', []));
         View::configure($this->path('app/Views'));
 
@@ -60,15 +67,19 @@ final class Application
         $this->router->alias('csrf', CsrfMiddleware::class);
         $this->router->alias('cors', CorsMiddleware::class);
         $this->router->alias('throttle', RateLimitMiddleware::class);
+        $this->router->alias('request_id', RequestIdMiddleware::class);
         $this->router->alias('token', ApiTokenMiddleware::class);
         $this->router->alias('jwt', JwtMiddleware::class);
         $this->router->alias('security', SecurityHeadersMiddleware::class);
+        $this->router->alias('signed', SignedUrlMiddleware::class);
 
         foreach ((array) Config::get('middleware.aliases', []) as $name => $middleware) {
             if (is_string($name) && is_string($middleware)) {
                 $this->router->alias($name, $middleware);
             }
         }
+
+        $this->router->middleware('request_id');
 
         foreach ((array) Config::get('middleware.global', ['cors', 'security']) as $middleware) {
             if (is_string($middleware) && $middleware !== '') {

@@ -18,7 +18,16 @@ Middleware:
 post('/account', 'AccountController@save')->middleware('auth', 'csrf');
 ```
 
-Built-in aliases: `auth`, `guest`, `csrf`.
+Named routes:
+
+```php
+get('/users/{id}', 'UserController@show')->name('users.show');
+
+route('users.show', ['id' => 5]);
+signed_route('users.show', ['id' => 5], '+30 minutes');
+```
+
+Built-in aliases include `auth`, `guest`, `csrf`, `signed`, `request_id`, `throttle`, `token`, `jwt`, `cors` and `security`.
 
 The router automatically handles HEAD and OPTIONS, returns 405 with an `Allow` header for wrong methods, and rejects duplicate method/path registrations.
 
@@ -115,6 +124,8 @@ For regex patterns containing `|`, pass rules as an array so the pipe is not int
 
 For uploaded files, `min`, `max` and `size` are measured in KiB.
 
+Optional request classes can extend `SedoPHP\Http\FormRequest` and expose `passes()`, `fails()`, `errors()` and `validated()` while keeping the original `validate()` helper available.
+
 ## Uploads
 
 ```php
@@ -176,6 +187,8 @@ user('email')
 
 `user()` never exposes the configured password column.
 
+0.3 development also includes login throttling, single-use password-reset tokens and email-verification tokens. See [authentication.md](authentication.md).
+
 ## CLI
 
 ```bash
@@ -202,17 +215,50 @@ env('APP_ENV')
 ```
 
 
-## 0.2 development APIs
+## Extended APIs
 
-Additional APIs are documented in [advanced-features.md](advanced-features.md).
+The 0.2 feature set remains documented in [advanced-features.md](advanced-features.md).
 
-Built-in middleware aliases now also include throttle, token and jwt. Parameterized middleware uses the form throttle:60,60.
+0.3 adds focused guides for:
 
-Additional helpers include cache_get(), cache_put(), cache_remember(), cache_forget(), jwt_encode(), jwt_decode(), jwt_claim(), api_token_issue(), api_token_revoke(), token_can(), rate_limit(), mail_send(), queue_push() and queue_work().
+- [database/query builder](database.md)
+- [models and relations](models.md)
+- [authentication](authentication.md)
+- [testing and test data](testing.md)
+- [console commands](console.md)
+- [logging and diagnostics](logging.md)
+- [cache, queue and scheduler](background-work.md)
+- [events](events.md)
+- [filesystem](filesystem.md)
+- [HTTP client](http-client.md)
+- [optimization](optimization.md)
 
-Additional CLI commands:
+Additional helpers include:
+
+```php
+route(...)
+signed_route(...)
+listen(...)
+event(...)
+storage()
+http()
+queue_push_unique(...)
+```
+
+Additional CLI commands include:
 
 ~~~bash
+php sedo make:seeder UserSeeder
+php sedo make:factory UserFactory
+php sedo make:middleware AdminMiddleware
+php sedo make:request StoreUserRequest
+php sedo make:job SendMailJob
+php sedo make:command CleanupCommand
+php sedo db:seed
+php sedo cache:clear
+php sedo config:show
+php sedo optimize
+php sedo optimize:clear
 php sedo queue:work 20
 php sedo schedule:run
 ~~~

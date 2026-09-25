@@ -24,6 +24,8 @@ final class ErrorHandler
             $status = $exception instanceof HttpException ? $exception->status : 500;
             $headers = $exception instanceof HttpException ? $exception->headers : [];
 
+            $requestId = RequestContext::id();
+
             Logger::error($exception->getMessage(), [
                 'exception' => $exception::class,
                 'status' => $status,
@@ -44,6 +46,9 @@ final class ErrorHandler
                     : 'Server error.';
 
                 $payload = ['error' => $message];
+                if ($requestId !== null) {
+                    $payload['request_id'] = $requestId;
+                }
 
                 if ($debug) {
                     $payload['exception'] = $exception::class;
@@ -53,6 +58,10 @@ final class ErrorHandler
                 }
 
                 $response = Response::json($payload, $status);
+                if ($requestId !== null) {
+                    $response = $response->withHeader('X-Request-Id', $requestId);
+                }
+
                 foreach ($headers as $name => $value) {
                     $response = $response->withHeader((string) $name, (string) $value);
                 }
@@ -64,7 +73,17 @@ final class ErrorHandler
                 ? self::debugPage($exception, $status)
                 : self::productionPage($status, $exception instanceof HttpException ? $exception->getMessage() : '');
 
-            (new Response($body, $status, array_merge(['Content-Type' => 'text/html; charset=UTF-8'], $headers)))->send();
+            $response = new Response(
+                $body,
+                $status,
+                array_merge(['Content-Type' => 'text/html; charset=UTF-8'], $headers)
+            );
+
+            if ($requestId !== null) {
+                $response = $response->withHeader('X-Request-Id', $requestId);
+            }
+
+            $response->send();
         });
     }
 

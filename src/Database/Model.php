@@ -11,7 +11,9 @@ use JsonException;
 use JsonSerializable;
 use RuntimeException;
 use SedoPHP\Database\Relations\BelongsTo;
+use SedoPHP\Database\Relations\BelongsToMany;
 use SedoPHP\Database\Relations\HasMany;
+use SedoPHP\Database\Relations\HasOne;
 
 /** @implements ArrayAccess<string, mixed> */
 abstract class Model implements ArrayAccess, JsonSerializable
@@ -32,6 +34,9 @@ abstract class Model implements ArrayAccess, JsonSerializable
     protected string $createdAt = 'created_at';
     protected string $updatedAt = 'updated_at';
 
+    protected bool $softDeletes = false;
+    protected string $deletedAt = 'deleted_at';
+
     /** @var array<string, mixed> */
     private array $attributes = [];
 
@@ -44,13 +49,34 @@ abstract class Model implements ArrayAccess, JsonSerializable
     public static function query(): QueryBuilder
     {
         $model = new static();
+        $query = Database::table($model->tableName());
+
+        return $model->softDeletes
+            ? $query->whereNull($model->deletedAt)
+            : $query;
+    }
+
+    public static function withTrashed(): QueryBuilder
+    {
+        $model = new static();
         return Database::table($model->tableName());
+    }
+
+    public static function onlyTrashed(): QueryBuilder
+    {
+        $model = new static();
+
+        if (!$model->softDeletes) {
+            throw new RuntimeException(static::class . ' does not enable soft deletes.');
+        }
+
+        return Database::table($model->tableName())->whereNotNull($model->deletedAt);
     }
 
     public static function find(int|string $id): ?static
     {
         $model = new static();
-        $row = Database::table($model->tableName())->where($model->primaryKey, $id)->first();
+        $row = static::query()->where($model->primaryKey, $id)->first();
         return $row === null ? null : new static($row);
     }
 
@@ -60,13 +86,32 @@ abstract class Model implements ArrayAccess, JsonSerializable
         return array_map(static fn (array $row) => new static($row), static::query()->get());
     }
 
-    /** @param string|list<string> $relations @return list<static> */
+    /**
+     * @param string|list<string>|array<string, callable(QueryBuilder):mixed> $relations
+     * @return list<static>
+     */
     public static function with(string|array $relations): array
     {
         $models = static::all();
-        foreach ((array) $relations as $relation) {
-            static::eagerLoad($models, (string) $relation);
+
+        if (is_string($relations)) {
+            static::eagerLoad($models, $relations);
+            return $models;
         }
+
+        foreach ($relations as $key => $value) {
+            if (is_int($key)) {
+                static::eagerLoad($models, (string) $value);
+                continue;
+            }
+
+            if (!is_callable($value)) {
+                throw new RuntimeException('Eager-load constraint for ' . $key . ' must be callable.');
+            }
+
+            static::eagerLoad($models, (string) $key, $value);
+        }
+
         return $models;
     }
 
@@ -101,9 +146,15 @@ abstract class Model implements ArrayAccess, JsonSerializable
             return false;
         }
 
-        Database::table($this->tableName())
-            ->where($this->primaryKey, $id)
-            ->update($this->serializeForDatabase($data));
+        $query = Database::table($this->tableName())->where($this->primaryKey, $id);
+        if ($this->softDeletes) {
+            $query->whereNull($this->deletedAt);
+        }
+
+        $updated = $query->update($this->serializeForDatabase($data));
+        if ($updated < 1) {
+            return false;
+        }
 
         $this->attributes = array_merge($this->attributes, $this->castAttributes($data));
         return true;
@@ -116,7 +167,69 @@ abstract class Model implements ArrayAccess, JsonSerializable
             throw new RuntimeException('Cannot delete a model without a primary key.');
         }
 
+        if (!$this->softDeletes) {
+            return Database::table($this->tableName())->where($this->primaryKey, $id)->delete() > 0;
+        }
+
+        if ($this->trashed()) {
+            return false;
+        }
+
+        $deletedAt = gmdate('Y-m-d H:i:s');
+        $updated = Database::table($this->tableName())
+            ->where($this->primaryKey, $id)
+            ->whereNull($this->deletedAt)
+            ->update([$this->deletedAt => $deletedAt]);
+
+        if ($updated > 0) {
+            $this->attributes[$this->deletedAt] = $deletedAt;
+            return true;
+        }
+
+        return false;
+    }
+
+    public function restore(): bool
+    {
+        if (!$this->softDeletes) {
+            throw new RuntimeException(static::class . ' does not enable soft deletes.');
+        }
+
+        $id = $this->attributes[$this->primaryKey] ?? null;
+        if ($id === null) {
+            throw new RuntimeException('Cannot restore a model without a primary key.');
+        }
+
+        if (!$this->trashed()) {
+            return false;
+        }
+
+        $updated = Database::table($this->tableName())
+            ->where($this->primaryKey, $id)
+            ->whereNotNull($this->deletedAt)
+            ->update([$this->deletedAt => null]);
+
+        if ($updated > 0) {
+            $this->attributes[$this->deletedAt] = null;
+            return true;
+        }
+
+        return false;
+    }
+
+    public function forceDelete(): bool
+    {
+        $id = $this->attributes[$this->primaryKey] ?? null;
+        if ($id === null) {
+            throw new RuntimeException('Cannot force-delete a model without a primary key.');
+        }
+
         return Database::table($this->tableName())->where($this->primaryKey, $id)->delete() > 0;
+    }
+
+    public function trashed(): bool
+    {
+        return $this->softDeletes && ($this->attributes[$this->deletedAt] ?? null) !== null;
     }
 
     public function get(string $key, mixed $default = null): mixed
@@ -127,6 +240,16 @@ abstract class Model implements ArrayAccess, JsonSerializable
     public function getKey(): mixed
     {
         return $this->attributes[$this->primaryKey] ?? null;
+    }
+
+    public function getTable(): string
+    {
+        return $this->tableName();
+    }
+
+    public function getPrimaryKeyName(): string
+    {
+        return $this->primaryKey;
     }
 
     public function setRelation(string $name, mixed $value): void
@@ -142,9 +265,38 @@ abstract class Model implements ArrayAccess, JsonSerializable
     }
 
     /** @param class-string<Model> $related */
+    protected function hasOne(string $related, string $foreignKey, ?string $localKey = null): HasOne
+    {
+        $key = $localKey ?? $this->primaryKey;
+        return new HasOne($related, $foreignKey, $this->attributes[$key] ?? null);
+    }
+
+    /** @param class-string<Model> $related */
     protected function belongsTo(string $related, string $foreignKey, string $ownerKey = 'id'): BelongsTo
     {
         return new BelongsTo($related, $ownerKey, $this->attributes[$foreignKey] ?? null);
+    }
+
+    /** @param class-string<Model> $related */
+    protected function belongsToMany(
+        string $related,
+        string $pivotTable,
+        string $foreignPivotKey,
+        string $relatedPivotKey,
+        ?string $parentKey = null,
+        ?string $relatedKey = null,
+    ): BelongsToMany {
+        $parentKey ??= $this->primaryKey;
+        $relatedKey ??= (new $related())->getPrimaryKeyName();
+
+        return new BelongsToMany(
+            $related,
+            $pivotTable,
+            $foreignPivotKey,
+            $relatedPivotKey,
+            $this->attributes[$parentKey] ?? null,
+            $relatedKey,
+        );
     }
 
     /** @return array<string, mixed> */
@@ -327,7 +479,7 @@ abstract class Model implements ArrayAccess, JsonSerializable
     }
 
     /** @param list<static> $models */
-    private static function eagerLoad(array $models, string $name): void
+    private static function eagerLoad(array $models, string $name, ?callable $constraint = null): void
     {
         [$name, $nested] = array_pad(explode('.', $name, 2), 2, null);
         if ($models === [] || $name === '' || !is_callable([$models[0], $name])) {
@@ -337,30 +489,48 @@ abstract class Model implements ArrayAccess, JsonSerializable
         $relations = array_map(static fn (Model $model): mixed => $model->{$name}(), $models);
         $first = $relations[0];
 
-        if ($first instanceof HasMany) {
+        if ($first instanceof HasMany || $first instanceof HasOne) {
             $values = array_values(array_unique(array_filter(
-                array_map(static fn (HasMany $relation): mixed => $relation->localValue(), $relations),
+                array_map(static fn (HasMany|HasOne $relation): mixed => $relation->localValue(), $relations),
                 static fn (mixed $value): bool => $value !== null
             ), SORT_REGULAR));
 
             $class = $first->relatedClass();
-            $rows = $values === [] ? [] : $class::query()->whereIn($first->foreignKey(), $values)->get();
+            $query = $class::query()->whereIn($first->foreignKey(), $values);
+            $query = static::applyEagerConstraint($query, $constraint);
+            $rows = $values === [] ? [] : $query->get();
             $grouped = [];
 
             foreach ($rows as $row) {
-                $grouped[(string) ($row[$first->foreignKey()] ?? '')][] = new $class($row);
+                $key = (string) ($row[$first->foreignKey()] ?? '');
+                if ($first instanceof HasOne) {
+                    $grouped[$key] ??= new $class($row);
+                } else {
+                    $grouped[$key][] = new $class($row);
+                }
             }
 
             foreach ($models as $index => $model) {
-                $model->setRelation($name, $grouped[(string) $relations[$index]->localValue()] ?? []);
+                $key = (string) $relations[$index]->localValue();
+                $model->setRelation(
+                    $name,
+                    $first instanceof HasOne ? ($grouped[$key] ?? null) : ($grouped[$key] ?? [])
+                );
             }
 
             if ($nested !== null && $rows !== []) {
                 $children = [];
                 foreach ($models as $model) {
-                    array_push($children, ...$model->get($name, []));
+                    $related = $model->get($name);
+                    if ($related instanceof Model) {
+                        $children[] = $related;
+                    } elseif (is_array($related)) {
+                        array_push($children, ...$related);
+                    }
                 }
-                $class::eagerLoad($children, $nested);
+                if ($children !== []) {
+                    self::eagerLoad($children, $nested);
+                }
             }
             return;
         }
@@ -372,7 +542,9 @@ abstract class Model implements ArrayAccess, JsonSerializable
             ), SORT_REGULAR));
 
             $class = $first->relatedClass();
-            $rows = $values === [] ? [] : $class::query()->whereIn($first->ownerKey(), $values)->get();
+            $query = $class::query()->whereIn($first->ownerKey(), $values);
+            $query = static::applyEagerConstraint($query, $constraint);
+            $rows = $values === [] ? [] : $query->get();
             $indexed = [];
 
             foreach ($rows as $row) {
@@ -384,11 +556,81 @@ abstract class Model implements ArrayAccess, JsonSerializable
             }
 
             if ($nested !== null && $indexed !== []) {
-                $class::eagerLoad(array_values($indexed), $nested);
+                self::eagerLoad(array_values($indexed), $nested);
             }
             return;
         }
 
-        throw new RuntimeException('Relation must return HasMany or BelongsTo: ' . $name);
+        if ($first instanceof BelongsToMany) {
+            $parentValues = array_values(array_unique(array_filter(
+                array_map(static fn (BelongsToMany $relation): mixed => $relation->parentValue(), $relations),
+                static fn (mixed $value): bool => $value !== null
+            ), SORT_REGULAR));
+
+            $pivotRows = $parentValues === []
+                ? []
+                : Database::table($first->pivotTable())
+                    ->whereIn($first->foreignPivotKey(), $parentValues)
+                    ->get();
+
+            $relatedIds = array_values(array_unique(array_filter(
+                array_map(
+                    static fn (array $row): mixed => $row[$first->relatedPivotKey()] ?? null,
+                    $pivotRows
+                ),
+                static fn (mixed $value): bool => $value !== null
+            ), SORT_REGULAR));
+
+            $class = $first->relatedClass();
+            $query = $class::query()->whereIn($first->relatedKey(), $relatedIds);
+            $query = static::applyEagerConstraint($query, $constraint);
+            $rows = $relatedIds === [] ? [] : $query->get();
+            $indexed = [];
+
+            foreach ($rows as $row) {
+                $indexed[(string) ($row[$first->relatedKey()] ?? '')] = $row;
+            }
+
+            $grouped = [];
+            foreach ($pivotRows as $pivotRow) {
+                $relatedId = (string) ($pivotRow[$first->relatedPivotKey()] ?? '');
+                $parentId = (string) ($pivotRow[$first->foreignPivotKey()] ?? '');
+
+                if (!isset($indexed[$relatedId])) {
+                    continue;
+                }
+
+                $relatedModel = new $class($indexed[$relatedId]);
+                $relatedModel->setRelation('pivot', $first->pivotData($pivotRow));
+                $grouped[$parentId][] = $relatedModel;
+            }
+
+            foreach ($models as $index => $model) {
+                $model->setRelation($name, $grouped[(string) $relations[$index]->parentValue()] ?? []);
+            }
+
+            if ($nested !== null && $grouped !== []) {
+                $children = [];
+                foreach ($models as $model) {
+                    array_push($children, ...$model->get($name, []));
+                }
+                if ($children !== []) {
+                    self::eagerLoad($children, $nested);
+                }
+            }
+            return;
+        }
+
+        throw new RuntimeException('Relation must return HasMany, HasOne, BelongsTo or BelongsToMany: ' . $name);
+    }
+
+    private static function applyEagerConstraint(QueryBuilder $query, ?callable $constraint): QueryBuilder
+    {
+        if ($constraint === null) {
+            return $query;
+        }
+
+        $result = $constraint($query);
+        return $result instanceof QueryBuilder ? $result : $query;
     }
 }
