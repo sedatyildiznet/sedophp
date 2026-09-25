@@ -8,6 +8,7 @@ use RuntimeException;
 use SedoPHP\Auth\Auth;
 use SedoPHP\Cache\Cache;
 use SedoPHP\Database\Database;
+use SedoPHP\Filesystem\Filesystem;
 use SedoPHP\Http\Request;
 use SedoPHP\Mail\Mailer;
 use SedoPHP\Middleware\ApiTokenMiddleware;
@@ -56,6 +57,7 @@ final class Application
         Jwt::configure((array) Config::get('auth', []));
         HttpSecurity::configure((array) Config::get('security', []));
         Cache::configure((array) Config::get('cache', []), $this->basePath);
+        Filesystem::configure((array) Config::get('filesystem', []), $this->basePath);
         Mailer::configure((array) Config::get('mail', []));
         View::configure($this->path('app/Views'));
 
