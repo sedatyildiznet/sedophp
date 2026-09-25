@@ -2,6 +2,11 @@
 
 declare(strict_types=1);
 
+use SedoPHP\Auth\Auth;
+use SedoPHP\Auth\EmailVerification;
+use SedoPHP\Auth\PasswordReset;
+use SedoPHP\Cache\Cache;
+use SedoPHP\Core\Config;
 use SedoPHP\Database\Database;
 use SedoPHP\Database\Model;
 use SedoPHP\Database\ModelFactory;
@@ -9,8 +14,13 @@ use SedoPHP\Database\QueryBuilder;
 use SedoPHP\Database\Schema;
 use SedoPHP\Database\Blueprint;
 use SedoPHP\Database\SeederRunner;
+use SedoPHP\Http\FormRequest;
+use SedoPHP\Http\Request;
 use SedoPHP\Http\Response;
+use SedoPHP\Middleware\SignedUrlMiddleware;
 use SedoPHP\Routing\Router;
+use SedoPHP\Security\SignedUrl;
+use SedoPHP\Session\Session;
 use SedoPHP\Testing\DatabaseAssertions;
 use SedoPHP\Testing\TestClient;
 use SedoPHP\Database\Relations\BelongsTo;
@@ -19,6 +29,16 @@ use SedoPHP\Database\Relations\HasMany;
 use SedoPHP\Database\Relations\HasOne;
 
 [$suite, $test, $expect] = require __DIR__ . '/Support/bootstrap.php';
+
+$m3CacheDirectory = sys_get_temp_dir() . '/sedophp_030_cache_' . getmypid();
+Cache::configure(['path' => $m3CacheDirectory, 'prefix' => 'm3_'], dirname(__DIR__));
+Config::set('app.key', str_repeat('k', 48));
+Session::configure([
+    'name' => 'sedophp_030_' . getmypid(),
+    'secure' => false,
+    'same_site' => 'Lax',
+]);
+Session::start();
 
 $testDriver = (string) (getenv('TEST_DB_DRIVER') ?: 'sqlite');
 
@@ -41,7 +61,7 @@ if ($testDriver === 'mysql' && in_array('mysql', PDO::getAvailableDrivers(), tru
 
 $pdo = Database::pdo();
 
-foreach (['m1_role_user', 'm1_posts', 'm1_profiles', 'm1_roles', 'm1_settings', 'm1_users'] as $table) {
+foreach (['m1_role_user', 'm1_posts', 'm1_profiles', 'm1_roles', 'm1_settings', 'm1_users', 'm3_auth_users'] as $table) {
     $pdo->exec('DROP TABLE IF EXISTS ' . $table);
 }
 
@@ -75,6 +95,11 @@ if ($testDriver === 'mysql') {
         setting_key VARCHAR(191) NOT NULL UNIQUE,
         setting_value VARCHAR(255) NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    $pdo->exec('CREATE TABLE m3_auth_users (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        email VARCHAR(191) NOT NULL UNIQUE,
+        password VARCHAR(255) NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
 } else {
     $pdo->exec('CREATE TABLE m1_users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,6 +129,11 @@ if ($testDriver === 'mysql') {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         setting_key TEXT NOT NULL UNIQUE,
         setting_value TEXT NOT NULL
+    )');
+    $pdo->exec('CREATE TABLE m3_auth_users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL
     )');
 }
 
@@ -162,6 +192,17 @@ final class M1Role extends Model
     protected array $fillable = ['name'];
 }
 
+final class M3StoreUserRequest extends FormRequest
+{
+    public function rules(): array
+    {
+        return [
+            'name' => 'required|string',
+            'email' => 'required|email',
+        ];
+    }
+}
+
 final class M1UserFactory extends ModelFactory
 {
     protected string $model = M1User::class;
@@ -189,6 +230,121 @@ Database::table('m1_role_user')->insert([
     'role_id' => $editor->getKey(),
     'level' => 'member',
 ]);
+
+$test('named routes generate encoded paths and query strings', static function () use ($expect): void {
+    $router = new Router();
+    $router->get('/users/{id}', static fn (string $id): string => $id)->name('users.show');
+
+    $path = $router->pathFor('users.show', [
+        'id' => 'user 7',
+        'tab' => 'posts',
+    ]);
+
+    $expect($path === '/users/user%207?tab=posts');
+});
+
+$test('signed URLs validate path and expiry through middleware', static function () use ($expect): void {
+    $valid = SignedUrl::sign('/verify/7?source=test', '+5 minutes');
+    $expect(SignedUrl::validate(Request::fake('GET', $valid)));
+    $expect(!SignedUrl::validate(Request::fake('GET', str_replace('/verify/7', '/verify/8', $valid))));
+
+    $expired = SignedUrl::sign('/verify/7', new DateTimeImmutable('-1 minute'));
+    $expect(!SignedUrl::validate(Request::fake('GET', $expired)));
+
+    $router = new Router();
+    $router->alias('signed', SignedUrlMiddleware::class);
+    $router->get('/verify/{id}', static fn (string $id): Response => Response::json(['id' => $id]))
+        ->middleware('signed');
+
+    $allowed = $router->dispatch(Request::fake('GET', SignedUrl::sign('/verify/7', '+5 minutes')));
+    $denied = $router->dispatch(Request::fake('GET', '/verify/7?signature=' . str_repeat('0', 64), [], [
+        'Accept' => 'application/json',
+    ]));
+
+    $expect($allowed->status() === 200);
+    $expect($denied->status() === 403);
+});
+
+$test('FormRequest keeps validation optional and returns validated input', static function () use ($expect): void {
+    $valid = new M3StoreUserRequest(Request::fake('POST', '/users', [
+        'name' => 'Sedat',
+        'email' => 'sedat@example.test',
+        'ignored' => 'value',
+    ]));
+
+    $expect($valid->passes());
+    $expect($valid->validated() === [
+        'name' => 'Sedat',
+        'email' => 'sedat@example.test',
+    ]);
+
+    $invalid = new M3StoreUserRequest(Request::fake('POST', '/users', [
+        'name' => '',
+        'email' => 'invalid',
+    ]));
+
+    $expect($invalid->fails());
+    $expect(isset($invalid->errors()['name'], $invalid->errors()['email']));
+});
+
+$test('auth throttles repeated login attempts and can clear the limit', static function () use ($expect): void {
+    $id = Database::table('m3_auth_users')->insert([
+        'email' => 'auth030@example.test',
+        'password' => password_hash('correct-password', PASSWORD_DEFAULT),
+    ]);
+
+    Auth::configure([
+        'table' => 'm3_auth_users',
+        'id' => 'id',
+        'identity' => 'email',
+        'password' => 'password',
+        'session_key' => '_sedo_030_auth',
+        'login_max_attempts' => 2,
+        'login_decay_seconds' => 60,
+    ]);
+
+    $expect(!Auth::attempt('auth030@example.test', 'wrong-one'));
+    $expect(!Auth::attempt('auth030@example.test', 'wrong-two'));
+    $expect(!Auth::attempt('auth030@example.test', 'correct-password'));
+
+    Auth::clearLoginAttempts('auth030@example.test');
+    $expect(Auth::attempt('auth030@example.test', 'correct-password'));
+    $expect(Auth::id() == $id);
+    Auth::logout();
+});
+
+$test('password reset tokens are hashed, expiring and single use', static function () use ($expect): void {
+    $id = Database::table('m3_auth_users')->where('email', 'auth030@example.test')->value('id');
+
+    Auth::configure([
+        'table' => 'm3_auth_users',
+        'id' => 'id',
+        'identity' => 'email',
+        'password' => 'password',
+        'session_key' => '_sedo_030_auth',
+        'login_max_attempts' => 0,
+    ]);
+
+    $token = PasswordReset::issue((int) $id, 60);
+    $expect(PasswordReset::reset($token, 'new-password'));
+    $expect(!PasswordReset::reset($token, 'another-password'));
+
+    $hash = Database::table('m3_auth_users')->where('id', $id)->value('password');
+    $expect(is_string($hash) && password_verify('new-password', $hash));
+
+    $revoked = PasswordReset::issue((int) $id, 60);
+    PasswordReset::revoke($revoked);
+    $expect(!PasswordReset::reset($revoked, 'revoked-password'));
+});
+
+$test('email verification tokens preserve metadata and are single use', static function () use ($expect): void {
+    $token = EmailVerification::issue(77, ['email' => 'verify@example.test'], 60);
+    $payload = EmailVerification::verify($token);
+
+    $expect(($payload['subject'] ?? null) === 77);
+    $expect(($payload['metadata']['email'] ?? null) === 'verify@example.test');
+    $expect(EmailVerification::verify($token) === null);
+});
 
 $test('model factories create native-PHP test data without Faker', static function () use ($expect): void {
     $made = M1UserFactory::new()->state(['name' => 'Unsaved factory'])->make();
@@ -484,4 +640,9 @@ $test('forceDelete permanently removes a soft-deletable model', static function 
     $expect(M1User::withTrashed()->where('id', $id)->first() === null);
 });
 
-exit($suite->finish('0.3 M1'));
+foreach (glob($m3CacheDirectory . '/*') ?: [] as $file) {
+    @unlink($file);
+}
+@rmdir($m3CacheDirectory);
+
+exit($suite->finish('0.3'));
