@@ -14,6 +14,8 @@ spl_autoload_register(static function (string $class) use ($basePath): void {
     $prefixes = [
         'SedoPHP\\' => $basePath . '/src/',
         'App\\' => $basePath . '/app/',
+        'Database\\Seeders\\' => $basePath . '/database/seeders/',
+        'Database\\Factories\\' => $basePath . '/database/factories/',
     ];
 
     foreach ($prefixes as $prefix => $directory) {
