@@ -6,6 +6,7 @@ declare(strict_types=1);
 use SedoPHP\Cache\Cache;
 use SedoPHP\Console\ConsoleKernel;
 use SedoPHP\Core\Config;
+use SedoPHP\Core\Optimizer;
 use SedoPHP\Database\Database;
 use SedoPHP\Database\MigrationRunner;
 use SedoPHP\Database\SeederRunner;
@@ -445,6 +446,21 @@ switch ($command) {
         ) . PHP_EOL;
         break;
 
+    case 'optimize':
+        Optimizer::clear($app->path());
+        Config::load($app->path('config'));
+        $files = Optimizer::build($app->path(), Config::all(), $app->router()->routes());
+        echo "Optimization cache written:\n";
+        foreach ($files as $file) {
+            echo "  {$file}\n";
+        }
+        break;
+
+    case 'optimize:clear':
+        $count = Optimizer::clear($app->path());
+        echo "Cleared {$count} optimization cache file(s).\n";
+        break;
+
     case 'migrate':
         $count = (new MigrationRunner($app->path('database/migrations')))->migrate();
         echo $count === 0 ? "Nothing to migrate.\n" : "Migrated {$count} file(s).\n";
@@ -548,6 +564,8 @@ SedoPHP CLI
   php sedo db:seed [SeederName]
   php sedo cache:clear
   php sedo config:show [key]
+  php sedo optimize
+  php sedo optimize:clear
   php sedo migrate
   php sedo migrate:rollback
   php sedo queue:work [10] [queue]
