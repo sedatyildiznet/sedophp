@@ -6,7 +6,9 @@ use SedoPHP\Auth\Auth;
 use SedoPHP\Auth\EmailVerification;
 use SedoPHP\Auth\PasswordReset;
 use SedoPHP\Cache\Cache;
+use SedoPHP\Console\ConsoleKernel;
 use SedoPHP\Core\Config;
+use SedoPHP\Core\Optimizer;
 use SedoPHP\Database\Database;
 use SedoPHP\Database\Model;
 use SedoPHP\Database\ModelFactory;
@@ -638,6 +640,90 @@ $test('forceDelete permanently removes a soft-deletable model', static function 
     $expect($temporary->delete());
     $expect($temporary->forceDelete());
     $expect(M1User::withTrashed()->where('id', $id)->first() === null);
+});
+
+$test('custom console kernel discovers and runs plain PHP commands', static function () use ($expect): void {
+    $directory = sys_get_temp_dir() . '/sedophp_commands_' . getmypid();
+    if (!is_dir($directory)) {
+        mkdir($directory, 0775, true);
+    }
+
+    $file = $directory . '/Feature030Command.php';
+    $source = <<<'PHP'
+<?php
+
+declare(strict_types=1);
+
+namespace App\Console\Commands;
+
+use SedoPHP\Console\Command;
+
+final class Feature030Command extends Command
+{
+    protected string $name = 'app:feature030';
+    protected string $description = 'Feature test command';
+
+    public function handle(array $arguments): int
+    {
+        return count($arguments);
+    }
+}
+PHP;
+
+    file_put_contents($file, $source);
+
+    $kernel = new ConsoleKernel();
+    $kernel->discover($directory);
+
+    $expect($kernel->has('app:feature030'));
+    $expect(($kernel->commands()['app:feature030'] ?? null) === 'Feature test command');
+    $expect($kernel->run('app:feature030', ['one', 'two']) === 2);
+
+    @unlink($file);
+    @rmdir($directory);
+});
+
+$test('optimizer writes config and route metadata caches and clears cleanly', static function () use ($expect): void {
+    $base = sys_get_temp_dir() . '/sedophp_optimize_' . getmypid();
+    $configDirectory = $base . '/config';
+    mkdir($configDirectory, 0775, true);
+
+    file_put_contents($configDirectory . '/app.php', <<<'PHP'
+<?php
+return ['source' => 'file'];
+PHP);
+
+    $router = new Router();
+    $router->get('/optimized/{id}', static fn (string $id): string => $id)
+        ->name('optimized.show');
+
+    $files = Optimizer::build(
+        $base,
+        ['app' => ['source' => 'cache']],
+        $router->routes()
+    );
+
+    $expect(count($files) === 2);
+    $expect(is_file(Optimizer::configFile($base)));
+    $expect(is_file(Optimizer::routesFile($base)));
+
+    Config::load($configDirectory, Optimizer::configFile($base));
+    $expect(Config::get('app.source') === 'cache');
+
+    $manifest = require Optimizer::routesFile($base);
+    $expect(($manifest[0]['name'] ?? null) === 'optimized.show');
+    $expect(($manifest[0]['path'] ?? null) === '/optimized/{id}');
+
+    $expect(Optimizer::clear($base) === 2);
+
+    Config::load($configDirectory, Optimizer::configFile($base));
+    $expect(Config::get('app.source') === 'file');
+
+    @unlink($configDirectory . '/app.php');
+    @rmdir($configDirectory);
+    @rmdir($base . '/bootstrap/cache');
+    @rmdir($base . '/bootstrap');
+    @rmdir($base);
 });
 
 foreach (glob($m3CacheDirectory . '/*') ?: [] as $file) {
