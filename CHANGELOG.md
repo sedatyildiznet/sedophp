@@ -50,6 +50,15 @@
 - added compiled plain-PHP configuration cache and a route metadata manifest
 - extended linting to include the root sedo CLI executable
 
+### Production diagnostics and logging
+
+- added configurable text or JSON structured logging with log levels
+- added recursive redaction for common sensitive logging context keys
+- added request IDs across request attributes, response headers, logs and framework error responses
+- added opt-in database query timing and slow-query diagnostics
+- query diagnostics record SQL placeholders and binding counts without logging binding values
+- kept database diagnostics disabled by default for low production overhead
+
 ### Documentation and project metadata
 
 - added Zenodo DOI badge and DOI citation metadata
