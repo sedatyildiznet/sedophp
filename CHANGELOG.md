@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — 0.3.0-dev
+## Release candidate — 0.3.0-rc.1
 
 ### Architecture and planning
 
