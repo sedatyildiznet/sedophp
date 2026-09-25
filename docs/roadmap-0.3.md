@@ -1,8 +1,8 @@
 # SedoPHP 0.3 roadmap
 
-Status: **development**
+Status: **release candidate**
 
-Working version: **0.3.0-dev**
+Working version: **0.3.0-rc.1**
 
 Theme: **Developer Experience & Production Readiness**
 
@@ -190,6 +190,8 @@ Benchmarks exist to detect regressions inside SedoPHP, not to make unsupported m
 ```
 
 Before the release candidate, all planned features must be frozen. The RC phase accepts bug fixes, security fixes, documentation corrections and test improvements only.
+
+Feature freeze is now active for `0.3.0-rc.1`.
 
 ## Stable release checklist
 
