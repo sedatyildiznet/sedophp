@@ -8,6 +8,7 @@ use InvalidArgumentException;
 use PDO;
 use PDOException;
 use RuntimeException;
+use SedoPHP\Core\Logger;
 use Throwable;
 
 final class Database
@@ -16,6 +17,8 @@ final class Database
     private static array $config = [];
     private static ?PDO $pdo = null;
     private static int $transactionDepth = 0;
+    private static bool $logQueries = false;
+    private static int $slowQueryMs = 0;
 
     /** @param array<string, mixed> $config */
     public static function configure(array $config): void
@@ -23,6 +26,8 @@ final class Database
         self::$config = $config;
         self::$pdo = null;
         self::$transactionDepth = 0;
+        self::$logQueries = (bool) ($config['log_queries'] ?? false);
+        self::$slowQueryMs = max(0, (int) ($config['slow_query_ms'] ?? 0));
     }
 
     public static function pdo(): PDO
@@ -140,6 +145,35 @@ final class Database
         }
 
         return $sqlState === '40001';
+    }
+
+    public static function diagnosticsEnabled(): bool
+    {
+        return self::$logQueries || self::$slowQueryMs > 0;
+    }
+
+    public static function recordQuery(string $sql, int $bindingCount, float $durationMs): void
+    {
+        $slow = self::$slowQueryMs > 0 && $durationMs >= self::$slowQueryMs;
+
+        if (!self::$logQueries && !$slow) {
+            return;
+        }
+
+        $context = [
+            'driver' => self::driver(),
+            'sql' => $sql,
+            'binding_count' => $bindingCount,
+            'duration_ms' => round($durationMs, 3),
+            'slow' => $slow,
+        ];
+
+        if ($slow) {
+            Logger::warning('Slow database query', $context);
+            return;
+        }
+
+        Logger::info('Database query', $context);
     }
 
     public static function driver(): string
