@@ -1,0 +1,188 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use SedoPHP\Database\Database;
+use SedoPHP\Database\MigrationRunner;
+use SedoPHP\Routing\Router;
+
+/** @var \SedoPHP\Core\Application $app */
+$app = require __DIR__ . '/bootstrap/app.php';
+
+$command = $argv[1] ?? 'help';
+$name = $argv[2] ?? null;
+
+$writeClass = static function (string $type, ?string $name) use ($app): void {
+    if ($name === null || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name) !== 1) {
+        fwrite(STDERR, "Provide a valid class name.\n");
+        exit(1);
+    }
+
+    if ($type === 'controller') {
+        $file = $app->path("app/Controllers/{$name}.php");
+        $content = "<?php\n\ndeclare(strict_types=1);\n\nnamespace App\\Controllers;\n\nfinal class {$name}\n{\n    public function index()\n    {\n        return response('{$name}');\n    }\n}\n";
+    } else {
+        $file = $app->path("app/Models/{$name}.php");
+        $table = strtolower(preg_replace('/(?<!^)[A-Z]/', '_$0', $name) ?? $name) . 's';
+        $content = "<?php\n\ndeclare(strict_types=1);\n\nnamespace App\\Models;\n\nuse SedoPHP\\Database\\Model;\n\nfinal class {$name} extends Model\n{\n    protected string \$table = '{$table}';\n    protected array \$fillable = [];\n}\n";
+    }
+
+    if (is_file($file)) {
+        fwrite(STDERR, "Already exists: {$file}\n");
+        exit(1);
+    }
+
+    file_put_contents($file, $content);
+    echo "Created: {$file}\n";
+};
+
+$writeMigration = static function (?string $name) use ($app): void {
+    if ($name === null || preg_match('/^[A-Za-z0-9_-]+$/', $name) !== 1) {
+        fwrite(STDERR, "Provide a migration name, for example: create_posts\n");
+        exit(1);
+    }
+
+    $slug = strtolower((string) preg_replace('/[^A-Za-z0-9]+/', '_', $name));
+    $slug = trim($slug, '_');
+    $file = $app->path('database/migrations/' . date('Ymd_His') . '_' . $slug . '.php');
+
+    $content = <<<'PHP'
+<?php
+
+declare(strict_types=1);
+
+return [
+    'up' => static function (PDO $db): void {
+        // Write plain SQL here.
+    },
+    'down' => static function (PDO $db): void {
+        // Reverse the migration here.
+    },
+];
+
+PHP;
+
+    file_put_contents($file, $content);
+    echo "Created: {$file}\n";
+};
+
+$doctor = static function () use ($app): int {
+    $checks = [];
+
+    $checks[] = ['PHP >= 8.3', version_compare(PHP_VERSION, '8.3.0', '>='), PHP_VERSION];
+    $checks[] = ['PDO extension', extension_loaded('pdo'), extension_loaded('pdo') ? 'loaded' : 'missing'];
+
+    $driver = (string) config('database.driver', 'mysql');
+    $pdoDrivers = PDO::getAvailableDrivers();
+    $checks[] = ["PDO driver: {$driver}", in_array($driver, $pdoDrivers, true), implode(', ', $pdoDrivers) ?: 'none'];
+    $checks[] = ['.env file', is_file($app->path('.env')), is_file($app->path('.env')) ? 'found' : 'missing (copy .env.example)'];
+    $checks[] = ['storage/logs writable', is_writable($app->path('storage/logs')), $app->path('storage/logs')];
+    $checks[] = ['storage/cache writable', is_writable($app->path('storage/cache')), $app->path('storage/cache')];
+
+    $rewrite = 'unknown outside Apache';
+    $rewriteOk = true;
+    if (function_exists('apache_get_modules')) {
+        $rewriteOk = in_array('mod_rewrite', apache_get_modules(), true);
+        $rewrite = $rewriteOk ? 'mod_rewrite loaded' : 'mod_rewrite missing';
+    }
+    $checks[] = ['Apache rewrite', $rewriteOk, $rewrite];
+
+    $dbOk = false;
+    $dbMessage = 'not checked';
+    try {
+        Database::pdo()->query('SELECT 1');
+        $dbOk = true;
+        $dbMessage = 'connection successful';
+    } catch (Throwable $e) {
+        $dbMessage = $e->getMessage();
+    }
+    $checks[] = ['Database connection', $dbOk, $dbMessage];
+
+    $failed = 0;
+    foreach ($checks as [$label, $ok, $detail]) {
+        echo ($ok ? '[OK]   ' : '[FAIL] ') . str_pad($label, 24) . ' ' . $detail . PHP_EOL;
+        if (!$ok) {
+            $failed++;
+        }
+    }
+
+    return $failed === 0 ? 0 : 1;
+};
+
+switch ($command) {
+    case 'serve':
+        $address = $name ?? '127.0.0.1:8000';
+        echo "SedoPHP development server: http://{$address}\n";
+        passthru(
+            escapeshellarg(PHP_BINARY)
+            . ' -S ' . escapeshellarg($address)
+            . ' -t ' . escapeshellarg($app->path('public'))
+            . ' ' . escapeshellarg($app->path('public/router.php')),
+            $code
+        );
+        exit($code);
+
+    case 'make:controller':
+        $writeClass('controller', $name);
+        break;
+
+    case 'make:model':
+        $writeClass('model', $name);
+        break;
+
+    case 'make:migration':
+        $writeMigration($name);
+        break;
+
+    case 'migrate':
+        $count = (new MigrationRunner($app->path('database/migrations')))->migrate();
+        echo $count === 0 ? "Nothing to migrate.\n" : "Migrated {$count} file(s).\n";
+        break;
+
+    case 'migrate:rollback':
+        $count = (new MigrationRunner($app->path('database/migrations')))->rollback();
+        echo $count === 0 ? "Nothing to roll back.\n" : "Rolled back {$count} file(s).\n";
+        break;
+
+    case 'route:list':
+        $routes = $app->router()->routes();
+        if ($routes === []) {
+            echo "No routes registered.\n";
+            break;
+        }
+
+        echo str_pad('METHOD', 10) . str_pad('PATH', 34) . str_pad('ACTION', 40) . "MIDDLEWARE\n";
+        echo str_repeat('-', 100) . "\n";
+        foreach ($routes as $route) {
+            echo str_pad($route->method, 10)
+                . str_pad($route->pattern, 34)
+                . str_pad(Router::describeAction($route->action), 40)
+                . implode(',', $route->middlewareNames())
+                . "\n";
+        }
+        break;
+
+    case 'doctor':
+        exit($doctor());
+
+    case 'version':
+        echo 'SedoPHP ' . trim((string) file_get_contents($app->path('VERSION'))) . "\n";
+        break;
+
+    default:
+        echo <<<TXT
+SedoPHP CLI
+
+  php sedo serve [127.0.0.1:8000]
+  php sedo make:controller NameController
+  php sedo make:model User
+  php sedo make:migration create_posts
+  php sedo migrate
+  php sedo migrate:rollback
+  php sedo route:list
+  php sedo doctor
+  php sedo version
+
+TXT;
+}
