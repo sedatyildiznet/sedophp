@@ -13,6 +13,23 @@ final class HttpClient
     /** @var array<string,string> */
     private array $headers = [];
     private int $timeoutSeconds = 10;
+    private string $transport = 'auto';
+
+    public function transport(string $transport): self
+    {
+        $transport = strtolower(trim($transport));
+        if (!in_array($transport, ['auto', 'curl', 'stream'], true)) {
+            throw new InvalidArgumentException('HTTP transport must be auto, curl or stream.');
+        }
+
+        if ($transport === 'curl' && !function_exists('curl_init')) {
+            throw new RuntimeException('cURL transport is unavailable.');
+        }
+
+        $clone = clone $this;
+        $clone->transport = $transport;
+        return $clone;
+    }
 
     public function timeout(int $seconds): self
     {
@@ -109,7 +126,11 @@ final class HttpClient
             $headers['User-Agent'] = 'SedoPHP HTTP Client';
         }
 
-        return function_exists('curl_init')
+        $transport = $this->transport === 'auto'
+            ? (function_exists('curl_init') ? 'curl' : 'stream')
+            : $this->transport;
+
+        return $transport === 'curl'
             ? $this->curlRequest($method, $url, $body, $headers)
             : $this->streamRequest($method, $url, $body, $headers);
     }
