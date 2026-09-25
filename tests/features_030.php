@@ -358,6 +358,10 @@ $test('model factories create native-PHP test data without Faker', static functi
     $expect(count($created) === 2);
     $expect($created[0] instanceof M1User);
     $expect($created[0]->getKey() !== null);
+
+    foreach ($created as $factoryUser) {
+        $factoryUser->forceDelete();
+    }
 });
 
 $test('seeder runner loads plain PHP seeders from a directory', static function () use ($expect): void {
