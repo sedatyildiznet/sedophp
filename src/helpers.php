@@ -156,7 +156,10 @@ if (!function_exists('db')) {
 }
 
 if (!function_exists('transaction')) {
-    function transaction(callable $callback): mixed { return Database::transaction($callback); }
+    function transaction(callable $callback, int $attempts = 1): mixed
+    {
+        return Database::transaction($callback, $attempts);
+    }
 }
 
 if (!function_exists('validate')) {
