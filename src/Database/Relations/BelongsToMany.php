@@ -112,6 +112,76 @@ final class BelongsToMany
         return $this->query()->count();
     }
 
+    /** @param array<string,mixed> $pivot */
+    public function attach(int|string $relatedId, array $pivot = []): bool
+    {
+        if ($this->parentValue === null) {
+            return false;
+        }
+
+        $attributes = [
+            $this->foreignPivotKey => $this->parentValue,
+            $this->relatedPivotKey => $relatedId,
+        ];
+
+        return Database::table($this->pivotTable)->updateOrInsert(
+            $attributes,
+            array_diff_key($pivot, $attributes)
+        );
+    }
+
+    /** @param int|string|list<int|string>|null $relatedIds */
+    public function detach(int|string|array|null $relatedIds = null): int
+    {
+        if ($this->parentValue === null) {
+            return 0;
+        }
+
+        $query = Database::table($this->pivotTable)
+            ->where($this->foreignPivotKey, $this->parentValue);
+
+        if ($relatedIds !== null) {
+            $ids = is_array($relatedIds) ? array_values($relatedIds) : [$relatedIds];
+            if ($ids === []) {
+                return 0;
+            }
+            $query->whereIn($this->relatedPivotKey, $ids);
+        }
+
+        return $query->delete();
+    }
+
+    /**
+     * @param list<int|string> $relatedIds
+     * @return array{attached:list<int|string>,detached:list<int|string>}
+     */
+    public function sync(array $relatedIds): array
+    {
+        if ($this->parentValue === null) {
+            return ['attached' => [], 'detached' => []];
+        }
+
+        $relatedIds = array_values(array_unique($relatedIds, SORT_REGULAR));
+        $current = Database::table($this->pivotTable)
+            ->where($this->foreignPivotKey, $this->parentValue)
+            ->pluck($this->relatedPivotKey);
+
+        $attached = array_values(array_diff($relatedIds, $current));
+        $detached = array_values(array_diff($current, $relatedIds));
+
+        Database::transaction(function () use ($attached, $detached): void {
+            foreach ($attached as $relatedId) {
+                $this->attach($relatedId);
+            }
+
+            if ($detached !== []) {
+                $this->detach($detached);
+            }
+        });
+
+        return ['attached' => $attached, 'detached' => $detached];
+    }
+
     /** @param array<string, mixed> $row @return array<string, mixed> */
     public function pivotData(array $row): array
     {
