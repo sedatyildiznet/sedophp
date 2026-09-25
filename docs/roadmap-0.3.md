@@ -213,7 +213,7 @@ Before the release candidate, all planned features must be frozen. The RC phase 
 
 - [x] Define 0.3 architectural constraints.
 - [x] Create the 0.3 implementation roadmap.
-- [ ] M1 — Database and ORM.
+- [x] M1 — Database and ORM.
 - [ ] M2 — Seeders, factories and application testing.
 - [ ] M3 — Routing and authentication primitives.
 - [ ] M4 — CLI and developer experience.
