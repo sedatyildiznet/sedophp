@@ -35,6 +35,9 @@ jobs:
           sleep 1
           TEST_SMTP=1 TEST_SMTP_CAPTURE=/tmp/sedophp-smtp.eml composer test
           wait $SMTP_PID
+      - name: Benchmark smoke
+        if: matrix.php == '8.3'
+        run: php tools/benchmark.php --json
       - name: CLI and HTTP smoke
         if: matrix.php == '8.3'
         run: |
