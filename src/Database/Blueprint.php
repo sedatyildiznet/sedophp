@@ -18,6 +18,18 @@ final class Blueprint
     /** @var list<string> */
     private array $dropColumns = [];
 
+    /** @var list<array{from:string,to:string}> */
+    private array $renameColumns = [];
+
+    /** @var list<string> */
+    private array $dropIndexes = [];
+
+    /** @var list<array{columns:list<string>,on:string,references:list<string>,name:?string,onDelete:string,onUpdate:string}> */
+    private array $foreignKeys = [];
+
+    /** @var list<string> */
+    private array $dropForeignKeys = [];
+
     public function __construct(
         private readonly string $table,
         private readonly bool $creating = false,
@@ -97,6 +109,11 @@ final class Blueprint
         $this->timestamp('updated_at')->nullable();
     }
 
+    public function softDeletes(string $name = 'deleted_at'): ColumnDefinition
+    {
+        return $this->timestamp($name)->nullable();
+    }
+
     /** @param string|list<string> $columns */
     public function index(string|array $columns, ?string $name = null): void
     {
@@ -119,6 +136,73 @@ final class Blueprint
         }
     }
 
+    public function renameColumn(string $from, string $to): void
+    {
+        self::assertIdentifier($from);
+        self::assertIdentifier($to);
+        $this->renameColumns[] = ['from' => $from, 'to' => $to];
+    }
+
+    public function dropIndex(string $name): void
+    {
+        self::assertIdentifier($name);
+        if (!in_array($name, $this->dropIndexes, true)) {
+            $this->dropIndexes[] = $name;
+        }
+    }
+
+    /**
+     * @param string|list<string> $columns
+     * @param string|list<string> $references
+     */
+    public function foreign(
+        string|array $columns,
+        string $on,
+        string|array $references = 'id',
+        ?string $name = null,
+        string $onDelete = 'RESTRICT',
+        string $onUpdate = 'RESTRICT',
+    ): void {
+        $columns = is_array($columns) ? array_values($columns) : [$columns];
+        $references = is_array($references) ? array_values($references) : [$references];
+
+        if ($columns === [] || count($columns) !== count($references)) {
+            throw new InvalidArgumentException('Foreign key columns and referenced columns must have the same non-zero length.');
+        }
+
+        foreach ($columns as $column) {
+            self::assertIdentifier($column);
+        }
+        foreach ($references as $column) {
+            self::assertIdentifier($column);
+        }
+        self::assertIdentifier($on);
+
+        if ($name !== null) {
+            self::assertIdentifier($name);
+        }
+
+        $onDelete = $this->foreignAction($onDelete);
+        $onUpdate = $this->foreignAction($onUpdate);
+
+        $this->foreignKeys[] = compact(
+            'columns',
+            'on',
+            'references',
+            'name',
+            'onDelete',
+            'onUpdate'
+        );
+    }
+
+    public function dropForeign(string $name): void
+    {
+        self::assertIdentifier($name);
+        if (!in_array($name, $this->dropForeignKeys, true)) {
+            $this->dropForeignKeys[] = $name;
+        }
+    }
+
     /** @return list<string> */
     public function statements(string $driver): array
     {
@@ -134,6 +218,10 @@ final class Blueprint
             }
 
             $columns = array_map(fn (ColumnDefinition $column): string => $this->compileColumn($column, $driver), $this->columns);
+            foreach ($this->foreignKeys as $foreign) {
+                $columns[] = $this->compileForeign($foreign, $driver);
+            }
+
             $suffix = $driver === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4' : '';
             $statements[] = 'CREATE TABLE ' . $this->quote($this->table, $driver)
                 . ' (' . implode(', ', $columns) . ')' . $suffix;
@@ -150,6 +238,28 @@ final class Blueprint
             foreach ($this->dropColumns as $column) {
                 $statements[] = 'ALTER TABLE ' . $this->quote($this->table, $driver)
                     . ' DROP COLUMN ' . $this->quote($column, $driver);
+            }
+
+            foreach ($this->renameColumns as $rename) {
+                $statements[] = 'ALTER TABLE ' . $this->quote($this->table, $driver)
+                    . ' RENAME COLUMN ' . $this->quote($rename['from'], $driver)
+                    . ' TO ' . $this->quote($rename['to'], $driver);
+            }
+
+            if (($this->foreignKeys !== [] || $this->dropForeignKeys !== []) && $driver === 'sqlite') {
+                throw new RuntimeException(
+                    'SQLite cannot add or drop foreign-key constraints with Schema::table(); rebuild the table in a migration instead.'
+                );
+            }
+
+            foreach ($this->foreignKeys as $foreign) {
+                $statements[] = 'ALTER TABLE ' . $this->quote($this->table, $driver)
+                    . ' ADD ' . $this->compileForeign($foreign, $driver);
+            }
+
+            foreach ($this->dropForeignKeys as $name) {
+                $statements[] = 'ALTER TABLE ' . $this->quote($this->table, $driver)
+                    . ' DROP FOREIGN KEY ' . $this->quote($name, $driver);
             }
         }
 
@@ -173,7 +283,45 @@ final class Blueprint
                 . ' (' . implode(', ', array_map(fn (string $column): string => $this->quote($column, $driver), $index['columns'])) . ')';
         }
 
+        foreach ($this->dropIndexes as $name) {
+            $statements[] = $driver === 'mysql'
+                ? 'DROP INDEX ' . $this->quote($name, $driver) . ' ON ' . $this->quote($this->table, $driver)
+                : 'DROP INDEX ' . $this->quote($name, $driver);
+        }
+
         return $statements;
+    }
+
+    /**
+     * @param array{columns:list<string>,on:string,references:list<string>,name:?string,onDelete:string,onUpdate:string} $foreign
+     */
+    private function compileForeign(array $foreign, string $driver): string
+    {
+        $name = $foreign['name'] ?? strtolower(
+            $this->table . '_' . implode('_', $foreign['columns']) . '_foreign'
+        );
+        self::assertIdentifier($name);
+
+        return 'CONSTRAINT ' . $this->quote($name, $driver)
+            . ' FOREIGN KEY (' . implode(', ', array_map(
+                fn (string $column): string => $this->quote($column, $driver),
+                $foreign['columns']
+            )) . ') REFERENCES ' . $this->quote($foreign['on'], $driver)
+            . ' (' . implode(', ', array_map(
+                fn (string $column): string => $this->quote($column, $driver),
+                $foreign['references']
+            )) . ') ON DELETE ' . $foreign['onDelete']
+            . ' ON UPDATE ' . $foreign['onUpdate'];
+    }
+
+    private function foreignAction(string $action): string
+    {
+        $action = strtoupper(trim($action));
+        if (!in_array($action, ['CASCADE', 'RESTRICT', 'SET NULL', 'NO ACTION'], true)) {
+            throw new InvalidArgumentException("Unsupported foreign-key action: {$action}");
+        }
+
+        return $action;
     }
 
     /** @param array<string,int> $options */

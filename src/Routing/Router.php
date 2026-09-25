@@ -95,6 +95,54 @@ final class Router
         return $this->routes;
     }
 
+    /** @param array<string,mixed> $parameters */
+    public function pathFor(string $name, array $parameters = []): string
+    {
+        $matches = array_values(array_filter(
+            $this->routes,
+            static fn (Route $route): bool => $route->routeName() === $name
+        ));
+
+        if ($matches === []) {
+            throw new RuntimeException("Named route not found: {$name}");
+        }
+
+        if (count($matches) > 1) {
+            throw new RuntimeException("Duplicate route name: {$name}");
+        }
+
+        $used = [];
+        $path = preg_replace_callback(
+            '/\{([A-Za-z_][A-Za-z0-9_]*)\}/',
+            static function (array $match) use ($parameters, &$used, $name): string {
+                $key = $match[1];
+                if (!array_key_exists($key, $parameters)) {
+                    throw new RuntimeException("Missing route parameter {$key} for {$name}.");
+                }
+
+                $value = $parameters[$key];
+                if (!is_scalar($value) && !($value instanceof \Stringable)) {
+                    throw new RuntimeException("Route parameter {$key} must be scalar or stringable.");
+                }
+
+                $used[] = $key;
+                return rawurlencode((string) $value);
+            },
+            $matches[0]->pattern
+        );
+
+        if ($path === null) {
+            throw new RuntimeException("Unable to build route path: {$name}");
+        }
+
+        $query = array_diff_key($parameters, array_flip($used));
+        if ($query !== []) {
+            $path .= '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+        }
+
+        return $path;
+    }
+
     public function dispatch(Request $request): Response
     {
         $destination = fn (): Response => $this->dispatchRoutes($request);

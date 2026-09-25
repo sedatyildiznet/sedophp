@@ -9,9 +9,19 @@ final class Config
     /** @var array<string, array<string, mixed>> */
     private static array $items = [];
 
-    public static function load(string $directory): void
+    public static function load(string $directory, ?string $cacheFile = null): void
     {
         self::$items = [];
+
+        if ($cacheFile !== null && is_file($cacheFile)) {
+            $cached = require $cacheFile;
+            if (!is_array($cached)) {
+                throw new \RuntimeException("Invalid configuration cache: {$cacheFile}");
+            }
+
+            self::$items = $cached;
+            return;
+        }
 
         foreach (glob(rtrim($directory, '/') . '/*.php') ?: [] as $file) {
             $value = require $file;
@@ -19,6 +29,12 @@ final class Config
                 self::$items[basename($file, '.php')] = $value;
             }
         }
+    }
+
+    /** @return array<string,array<string,mixed>> */
+    public static function all(): array
+    {
+        return self::$items;
     }
 
     public static function get(string $key, mixed $default = null): mixed

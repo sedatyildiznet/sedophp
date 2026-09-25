@@ -20,7 +20,9 @@
   "autoload": {
     "psr-4": {
       "SedoPHP\\": "src/",
-      "App\\": "app/"
+      "App\\": "app/",
+      "Database\\Seeders\\": "database/seeders/",
+      "Database\\Factories\\": "database/factories/"
     },
     "files": [
       "src/helpers.php"
@@ -33,10 +35,13 @@
     "test": [
       "@php tests/run.php",
       "@php tests/features_020.php",
+      "@php tests/features_030.php",
       "@php tests/release_020.php",
+      "@php tests/release_030.php",
       "@php tests/concurrency.php"
     ],
-    "lint": "@php tools/lint.php"
+    "lint": "@php tools/lint.php",
+    "benchmark": "@php tools/benchmark.php"
   },
   "minimum-stability": "stable",
   "prefer-stable": true

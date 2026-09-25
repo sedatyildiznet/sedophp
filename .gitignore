@@ -9,3 +9,5 @@
 !/storage/cache/.gitkeep
 .DS_Store
 Thumbs.db
+/bootstrap/cache/*
+!/bootstrap/cache/.gitkeep

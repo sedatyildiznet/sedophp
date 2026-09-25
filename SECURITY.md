@@ -1,14 +1,15 @@
 # Security
 
-SedoPHP 0.2.1 is a stable release, but it has **not** undergone an independent third-party security audit. Stable means the documented 0.2 API has passed the project's automated regression and integration test matrix; it does not mean the software is vulnerability-free.
+SedoPHP 0.3.0 is a stable release, but it has **not** undergone an independent third-party security audit. Stable means the documented 0.3 API has passed the project's automated regression and integration test matrix; it does not mean the software is vulnerability-free.
 
 ## Supported versions
 
-Security fixes are applied to the current stable 0.2 release line.
+Security fixes are applied to the current stable 0.3 release line.
 
 | Version | Supported |
 | --- | --- |
-| 0.2.x | Yes |
+| 0.3.x | Yes |
+| 0.2.x | No |
 | 0.1.x | No |
 
 ## Built-in protections

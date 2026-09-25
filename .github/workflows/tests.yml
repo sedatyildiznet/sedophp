@@ -28,6 +28,10 @@ jobs:
         run: composer validate --strict
       - name: Lint
         run: php tools/lint.php
+      - name: Composer-free fallback
+        run: |
+          test ! -e vendor/autoload.php
+          php tests/fallback_autoload.php
       - name: Test
         run: |
           php tests/fake_smtp_server.php /tmp/sedophp-smtp.eml &
@@ -35,6 +39,30 @@ jobs:
           sleep 1
           TEST_SMTP=1 TEST_SMTP_CAPTURE=/tmp/sedophp-smtp.eml composer test
           wait $SMTP_PID
+      - name: Benchmark smoke
+        if: matrix.php == '8.3'
+        run: php tools/benchmark.php --json
+      - name: Release ZIP / Composer-free smoke
+        if: matrix.php == '8.3'
+        run: |
+          git archive --format=zip HEAD -o /tmp/sedophp-release.zip
+          mkdir -p /tmp/sedophp-release
+          unzip -q /tmp/sedophp-release.zip -d /tmp/sedophp-release
+          cd /tmp/sedophp-release
+          test ! -e vendor/autoload.php
+          printf '%s\n' \
+            'APP_ENV=production' \
+            'APP_DEBUG=false' \
+            'APP_KEY=release-smoke-key-012345678901234567890123456789' \
+            'DB_DRIVER=sqlite' \
+            "DB_SQLITE=/tmp/sedophp-release/storage/release.sqlite" \
+            > .env
+          touch storage/release.sqlite
+          php tests/fallback_autoload.php
+          php sedo migrate
+          php sedo db:seed
+          php sedo version
+          php sedo doctor
       - name: CLI and HTTP smoke
         if: matrix.php == '8.3'
         run: |

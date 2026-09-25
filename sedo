@@ -3,8 +3,14 @@
 
 declare(strict_types=1);
 
+use SedoPHP\Cache\Cache;
+use SedoPHP\Console\ConsoleKernel;
+use SedoPHP\Console\Doctor;
+use SedoPHP\Core\Config;
+use SedoPHP\Core\Optimizer;
 use SedoPHP\Database\Database;
 use SedoPHP\Database\MigrationRunner;
+use SedoPHP\Database\SeederRunner;
 use SedoPHP\Queue\Queue;
 use SedoPHP\Routing\Router;
 use SedoPHP\Scheduling\Schedule;
@@ -78,48 +84,259 @@ PHP;
     echo "Created: {$file}\n";
 };
 
-$doctor = static function () use ($app): int {
-    $checks = [];
-
-    $checks[] = ['PHP >= 8.3', version_compare(PHP_VERSION, '8.3.0', '>='), PHP_VERSION];
-    $checks[] = ['PDO extension', extension_loaded('pdo'), extension_loaded('pdo') ? 'loaded' : 'missing'];
-
-    $driver = (string) config('database.driver', 'mysql');
-    $pdoDrivers = PDO::getAvailableDrivers();
-    $checks[] = ["PDO driver: {$driver}", in_array($driver, $pdoDrivers, true), implode(', ', $pdoDrivers) ?: 'none'];
-    $checks[] = ['.env file', is_file($app->path('.env')), is_file($app->path('.env')) ? 'found' : 'missing (copy .env.example)'];
-    $checks[] = ['storage/logs writable', is_writable($app->path('storage/logs')), $app->path('storage/logs')];
-    $checks[] = ['storage/cache writable', is_writable($app->path('storage/cache')), $app->path('storage/cache')];
-
-    $rewrite = 'unknown outside Apache';
-    $rewriteOk = true;
-    if (function_exists('apache_get_modules')) {
-        $rewriteOk = in_array('mod_rewrite', apache_get_modules(), true);
-        $rewrite = $rewriteOk ? 'mod_rewrite loaded' : 'mod_rewrite missing';
-    }
-    $checks[] = ['Apache rewrite', $rewriteOk, $rewrite];
-
-    $dbOk = false;
-    $dbMessage = 'not checked';
-    try {
-        Database::pdo()->query('SELECT 1');
-        $dbOk = true;
-        $dbMessage = 'connection successful';
-    } catch (Throwable $e) {
-        $dbMessage = $e->getMessage();
-    }
-    $checks[] = ['Database connection', $dbOk, $dbMessage];
-
-    $failed = 0;
-    foreach ($checks as [$label, $ok, $detail]) {
-        echo ($ok ? '[OK]   ' : '[FAIL] ') . str_pad($label, 24) . ' ' . $detail . PHP_EOL;
-        if (!$ok) {
-            $failed++;
-        }
+$writeSeeder = static function (?string $name) use ($app): void {
+    if ($name === null || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name) !== 1) {
+        fwrite(STDERR, "Provide a valid seeder class name.\n");
+        exit(1);
     }
 
-    return $failed === 0 ? 0 : 1;
+    $directory = $app->path('database/seeders');
+    if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
+        fwrite(STDERR, "Could not create seeder directory: {$directory}\n");
+        exit(1);
+    }
+
+    $file = $directory . '/' . $name . '.php';
+    if (is_file($file)) {
+        fwrite(STDERR, "Already exists: {$file}\n");
+        exit(1);
+    }
+
+    $content = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace Database\Seeders;
+
+use SedoPHP\Database\Seeder;
+
+final class {$name} extends Seeder
+{
+    public function run(): void
+    {
+        // Seed data with models or db().
+    }
+}
+
+PHP;
+
+    file_put_contents($file, $content);
+    echo "Created: {$file}\n";
 };
+
+$writeFactory = static function (?string $name) use ($app): void {
+    if ($name === null || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name) !== 1) {
+        fwrite(STDERR, "Provide a valid factory class name.\n");
+        exit(1);
+    }
+
+    $directory = $app->path('database/factories');
+    if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
+        fwrite(STDERR, "Could not create factory directory: {$directory}\n");
+        exit(1);
+    }
+
+    $file = $directory . '/' . $name . '.php';
+    if (is_file($file)) {
+        fwrite(STDERR, "Already exists: {$file}\n");
+        exit(1);
+    }
+
+    $model = str_ends_with($name, 'Factory') ? substr($name, 0, -7) : $name;
+    $model = $model !== '' ? $model : 'User';
+
+    $content = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace Database\Factories;
+
+use App\Models\{$model};
+use SedoPHP\Database\ModelFactory;
+
+final class {$name} extends ModelFactory
+{
+    protected string \$model = {$model}::class;
+
+    protected function definition(): array
+    {
+        return [];
+    }
+}
+
+PHP;
+
+    file_put_contents($file, $content);
+    echo "Created: {$file}\n";
+};
+
+$writeAppClass = static function (string $type, ?string $name) use ($app): void {
+    if ($name === null || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name) !== 1) {
+        fwrite(STDERR, "Provide a valid class name.\n");
+        exit(1);
+    }
+
+    $definitions = [
+        'middleware' => [
+            'directory' => 'app/Middleware',
+            'namespace' => 'App\\Middleware',
+            'content' => static fn (string $class): string => <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace App\Middleware;
+
+use SedoPHP\Http\Request;
+use SedoPHP\Http\Response;
+use SedoPHP\Middleware\MiddlewareInterface;
+
+final class {$class} implements MiddlewareInterface
+{
+    public function handle(Request \$request, callable \$next): Response
+    {
+        return \$next();
+    }
+}
+
+PHP,
+        ],
+        'request' => [
+            'directory' => 'app/Http/Requests',
+            'namespace' => 'App\\Http\\Requests',
+            'content' => static fn (string $class): string => <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests;
+
+use SedoPHP\Http\FormRequest;
+
+final class {$class} extends FormRequest
+{
+    public function rules(): array
+    {
+        return [];
+    }
+}
+
+PHP,
+        ],
+        'job' => [
+            'directory' => 'app/Jobs',
+            'namespace' => 'App\\Jobs',
+            'content' => static fn (string $class): string => <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace App\Jobs;
+
+use SedoPHP\Queue\JobInterface;
+
+final class {$class} implements JobInterface
+{
+    public function handle(array \$payload): void
+    {
+        // Handle queued work.
+    }
+}
+
+PHP,
+        ],
+    ];
+
+    if (!isset($definitions[$type])) {
+        fwrite(STDERR, "Unsupported generator type: {$type}\n");
+        exit(1);
+    }
+
+    $directory = $app->path($definitions[$type]['directory']);
+    if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
+        fwrite(STDERR, "Could not create directory: {$directory}\n");
+        exit(1);
+    }
+
+    $file = $directory . '/' . $name . '.php';
+    if (is_file($file)) {
+        fwrite(STDERR, "Already exists: {$file}\n");
+        exit(1);
+    }
+
+    $content = $definitions[$type]['content']($name);
+    file_put_contents($file, $content);
+    echo "Created: {$file}\n";
+};
+
+$writeCommand = static function (?string $name) use ($app): void {
+    if ($name === null || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name) !== 1) {
+        fwrite(STDERR, "Provide a valid command class name.\n");
+        exit(1);
+    }
+
+    $directory = $app->path('app/Console/Commands');
+    if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
+        fwrite(STDERR, "Could not create command directory: {$directory}\n");
+        exit(1);
+    }
+
+    $file = $directory . '/' . $name . '.php';
+    if (is_file($file)) {
+        fwrite(STDERR, "Already exists: {$file}\n");
+        exit(1);
+    }
+
+    $base = str_ends_with($name, 'Command') ? substr($name, 0, -7) : $name;
+    $slug = strtolower((string) preg_replace('/(?<!^)[A-Z]/', '-$0', $base));
+    $slug = trim($slug, '-');
+    $signature = 'app:' . ($slug !== '' ? $slug : 'command');
+
+    $content = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace App\Console\Commands;
+
+use SedoPHP\Console\Command;
+
+final class {$name} extends Command
+{
+    protected string \$name = '{$signature}';
+    protected string \$description = '';
+
+    public function handle(array \$arguments): int
+    {
+        return 0;
+    }
+}
+
+PHP;
+
+    file_put_contents($file, $content);
+    echo "Created: {$file}\n";
+};
+
+$redactConfig = static function (mixed $value, ?string $key = null) use (&$redactConfig): mixed {
+    if ($key !== null && preg_match('/(?:password|passwd|secret|token|key)$/i', $key) === 1) {
+        return $value === '' || $value === null ? $value : '[REDACTED]';
+    }
+
+    if (!is_array($value)) {
+        return $value;
+    }
+
+    $result = [];
+    foreach ($value as $childKey => $childValue) {
+        $result[$childKey] = $redactConfig($childValue, (string) $childKey);
+    }
+    return $result;
+};
+
+$doctor = static fn (): int => Doctor::run($app);
 
 switch ($command) {
     case 'serve':
@@ -144,6 +361,64 @@ switch ($command) {
 
     case 'make:migration':
         $writeMigration($name);
+        break;
+
+    case 'make:seeder':
+        $writeSeeder($name);
+        break;
+
+    case 'make:factory':
+        $writeFactory($name);
+        break;
+
+    case 'make:middleware':
+        $writeAppClass('middleware', $name);
+        break;
+
+    case 'make:request':
+        $writeAppClass('request', $name);
+        break;
+
+    case 'make:job':
+        $writeAppClass('job', $name);
+        break;
+
+    case 'make:command':
+        $writeCommand($name);
+        break;
+
+    case 'db:seed':
+        $count = (new SeederRunner($app->path('database/seeders')))->run($name);
+        echo $count === 0 ? "No seeders found.\n" : "Ran {$count} seeder(s).\n";
+        break;
+
+    case 'cache:clear':
+        $count = Cache::clear();
+        echo "Cleared {$count} cache entr" . ($count === 1 ? "y" : "ies") . ".\n";
+        break;
+
+    case 'config:show':
+        $value = $name === null ? Config::all() : Config::get($name, null);
+        $value = $redactConfig($value, $name);
+        echo json_encode(
+            $value,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+        ) . PHP_EOL;
+        break;
+
+    case 'optimize':
+        Optimizer::clear($app->path());
+        Config::load($app->path('config'));
+        $files = Optimizer::build($app->path(), Config::all(), $app->router()->routes());
+        echo "Optimization cache written:\n";
+        foreach ($files as $file) {
+            echo "  {$file}\n";
+        }
+        break;
+
+    case 'optimize:clear':
+        $count = Optimizer::clear($app->path());
+        echo "Cleared {$count} optimization cache file(s).\n";
         break;
 
     case 'migrate':
@@ -198,6 +473,7 @@ switch ($command) {
         echo "Ran {$count} scheduled task(s).\n";
         break;
 
+    case 'routes':
     case 'route:list':
         $routes = $app->router()->routes();
         if ($routes === []) {
@@ -205,11 +481,12 @@ switch ($command) {
             break;
         }
 
-        echo str_pad('METHOD', 10) . str_pad('PATH', 34) . str_pad('ACTION', 40) . "MIDDLEWARE\n";
-        echo str_repeat('-', 100) . "\n";
+        echo str_pad('METHOD', 10) . str_pad('PATH', 34) . str_pad('NAME', 24) . str_pad('ACTION', 40) . "MIDDLEWARE\n";
+        echo str_repeat('-', 124) . "\n";
         foreach ($routes as $route) {
             echo str_pad($route->method, 10)
                 . str_pad($route->pattern, 34)
+                . str_pad((string) ($route->routeName() ?? ''), 24)
                 . str_pad(Router::describeAction($route->action), 40)
                 . implode(',', $route->middlewareNames())
                 . "\n";
@@ -224,6 +501,13 @@ switch ($command) {
         break;
 
     default:
+        $custom = new ConsoleKernel();
+        $custom->discover($app->path('app/Console/Commands'));
+
+        if ($custom->has($command)) {
+            exit($custom->run($command, array_values(array_slice($argv, 2))));
+        }
+
         echo <<<TXT
 SedoPHP CLI
 
@@ -231,6 +515,17 @@ SedoPHP CLI
   php sedo make:controller NameController
   php sedo make:model User
   php sedo make:migration create_posts
+  php sedo make:seeder UserSeeder
+  php sedo make:factory UserFactory
+  php sedo make:middleware AuthzMiddleware
+  php sedo make:request StoreUserRequest
+  php sedo make:job SendMailJob
+  php sedo make:command CleanupCommand
+  php sedo db:seed [SeederName]
+  php sedo cache:clear
+  php sedo config:show [key]
+  php sedo optimize
+  php sedo optimize:clear
   php sedo migrate
   php sedo migrate:rollback
   php sedo queue:work [10] [queue]
@@ -239,8 +534,18 @@ SedoPHP CLI
   php sedo queue:flush
   php sedo schedule:run
   php sedo route:list
+  php sedo routes
   php sedo doctor
   php sedo version
 
 TXT;
+
+        $commands = $custom->commands();
+        if ($commands !== []) {
+            echo "Custom commands:\n\n";
+            foreach ($commands as $customName => $description) {
+                echo '  ' . str_pad($customName, 28) . $description . PHP_EOL;
+            }
+            echo PHP_EOL;
+        }
 }

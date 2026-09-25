@@ -10,7 +10,10 @@ use SedoPHP\Core\Config;
 use SedoPHP\Core\Env;
 use SedoPHP\Core\Logger;
 use SedoPHP\Database\Database;
+use SedoPHP\Events\EventDispatcher;
+use SedoPHP\Filesystem\Filesystem;
 use SedoPHP\Database\QueryBuilder;
+use SedoPHP\Http\HttpClient;
 use SedoPHP\Http\Request;
 use SedoPHP\Http\Response;
 use SedoPHP\Http\UploadedFile;
@@ -20,6 +23,7 @@ use SedoPHP\Routing\Route;
 use SedoPHP\Security\Csrf;
 use SedoPHP\Security\Jwt;
 use SedoPHP\Security\RateLimiter;
+use SedoPHP\Security\SignedUrl;
 use SedoPHP\Session\Session;
 use SedoPHP\Validation\Validator;
 use SedoPHP\View\View;
@@ -147,6 +151,29 @@ if (!function_exists('url')) {
     }
 }
 
+if (!function_exists('route')) {
+    /** @param array<string,mixed> $parameters */
+    function route(string $name, array $parameters = [], bool $absolute = true): string
+    {
+        $path = app()->router()->pathFor($name, $parameters);
+        return $absolute ? url($path) : $path;
+    }
+}
+
+if (!function_exists('signed_route')) {
+    /** @param array<string,mixed> $parameters */
+    function signed_route(
+        string $name,
+        array $parameters = [],
+        DateTimeInterface|string|null $expiresAt = null,
+        bool $absolute = true,
+    ): string {
+        $path = app()->router()->pathFor($name, $parameters);
+        $signed = SignedUrl::sign($path, $expiresAt);
+        return $absolute ? url($signed) : $signed;
+    }
+}
+
 if (!function_exists('e')) {
     function e(mixed $value): string { return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 }
@@ -156,7 +183,10 @@ if (!function_exists('db')) {
 }
 
 if (!function_exists('transaction')) {
-    function transaction(callable $callback): mixed { return Database::transaction($callback); }
+    function transaction(callable $callback, int $attempts = 1): mixed
+    {
+        return Database::transaction($callback, $attempts);
+    }
 }
 
 if (!function_exists('validate')) {
@@ -338,14 +368,83 @@ if (!function_exists('queue_push')) {
         string $queue = 'default',
         int $backoffSeconds = 30,
         int $timeoutSeconds = 60,
+        ?string $uniqueKey = null,
+        string $backoffStrategy = 'linear',
     ): int
     {
-        return Queue::push($job, $payload, $delaySeconds, $maxAttempts, $queue, $backoffSeconds, $timeoutSeconds);
+        return Queue::push(
+            $job,
+            $payload,
+            $delaySeconds,
+            $maxAttempts,
+            $queue,
+            $backoffSeconds,
+            $timeoutSeconds,
+            $uniqueKey,
+            $backoffStrategy,
+        );
+    }
+}
+
+if (!function_exists('queue_push_unique')) {
+    /** @param class-string<\SedoPHP\Queue\JobInterface> $job @param array<string,mixed> $payload */
+    function queue_push_unique(
+        string $uniqueKey,
+        string $job,
+        array $payload = [],
+        int $delaySeconds = 0,
+        int $maxAttempts = 3,
+        string $queue = 'default',
+        int $backoffSeconds = 30,
+        int $timeoutSeconds = 60,
+        string $backoffStrategy = 'linear',
+    ): int
+    {
+        return Queue::pushUnique(
+            $uniqueKey,
+            $job,
+            $payload,
+            $delaySeconds,
+            $maxAttempts,
+            $queue,
+            $backoffSeconds,
+            $timeoutSeconds,
+            $backoffStrategy,
+        );
     }
 }
 
 if (!function_exists('queue_work')) {
     function queue_work(int $limit = 10, string $queue = 'default'): int { return Queue::work($limit, $queue); }
+}
+
+if (!function_exists('listen')) {
+    function listen(string $event, callable $listener): void
+    {
+        EventDispatcher::listen($event, $listener);
+    }
+}
+
+if (!function_exists('event')) {
+    /** @return list<mixed> */
+    function event(object|string $event, mixed $payload = null): array
+    {
+        return EventDispatcher::dispatch($event, $payload);
+    }
+}
+
+if (!function_exists('storage')) {
+    function storage(): \SedoPHP\Filesystem\FilesystemDriverInterface
+    {
+        return Filesystem::driver();
+    }
+}
+
+if (!function_exists('http')) {
+    function http(): HttpClient
+    {
+        return new HttpClient();
+    }
 }
 
 if (!function_exists('log_info')) {

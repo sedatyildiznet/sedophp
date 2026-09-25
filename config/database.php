@@ -19,4 +19,7 @@ return [
     'password' => (string) env('DB_PASS', ''),
     'charset' => (string) env('DB_CHARSET', 'utf8mb4'),
     'sqlite' => $sqlite,
+    'foreign_keys' => (bool) env('DB_FOREIGN_KEYS', true),
+    'log_queries' => (bool) env('DB_LOG_QUERIES', false),
+    'slow_query_ms' => (int) env('DB_SLOW_QUERY_MS', 0),
 ];
