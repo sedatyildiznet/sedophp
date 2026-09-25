@@ -28,6 +28,10 @@ jobs:
         run: composer validate --strict
       - name: Lint
         run: php tools/lint.php
+      - name: Composer-free fallback
+        run: |
+          test ! -e vendor/autoload.php
+          php tests/fallback_autoload.php
       - name: Test
         run: |
           php tests/fake_smtp_server.php /tmp/sedophp-smtp.eml &
