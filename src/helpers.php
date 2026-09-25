@@ -10,7 +10,10 @@ use SedoPHP\Core\Config;
 use SedoPHP\Core\Env;
 use SedoPHP\Core\Logger;
 use SedoPHP\Database\Database;
+use SedoPHP\Events\EventDispatcher;
+use SedoPHP\Filesystem\Filesystem;
 use SedoPHP\Database\QueryBuilder;
+use SedoPHP\Http\HttpClient;
 use SedoPHP\Http\Request;
 use SedoPHP\Http\Response;
 use SedoPHP\Http\UploadedFile;
@@ -413,6 +416,35 @@ if (!function_exists('queue_push_unique')) {
 
 if (!function_exists('queue_work')) {
     function queue_work(int $limit = 10, string $queue = 'default'): int { return Queue::work($limit, $queue); }
+}
+
+if (!function_exists('listen')) {
+    function listen(string $event, callable $listener): void
+    {
+        EventDispatcher::listen($event, $listener);
+    }
+}
+
+if (!function_exists('event')) {
+    /** @return list<mixed> */
+    function event(object|string $event, mixed $payload = null): array
+    {
+        return EventDispatcher::dispatch($event, $payload);
+    }
+}
+
+if (!function_exists('storage')) {
+    function storage(): \SedoPHP\Filesystem\FilesystemDriverInterface
+    {
+        return Filesystem::driver();
+    }
+}
+
+if (!function_exists('http')) {
+    function http(): HttpClient
+    {
+        return new HttpClient();
+    }
 }
 
 if (!function_exists('log_info')) {
