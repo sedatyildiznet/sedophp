@@ -1,8 +1,8 @@
 # SedoPHP 0.3 roadmap
 
-Status: **release candidate**
+Status: **stable release preparation**
 
-Working version: **0.3.0-rc.1**
+Working version: **0.3.0**
 
 Theme: **Developer Experience & Production Readiness**
 
