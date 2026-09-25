@@ -365,9 +365,49 @@ if (!function_exists('queue_push')) {
         string $queue = 'default',
         int $backoffSeconds = 30,
         int $timeoutSeconds = 60,
+        ?string $uniqueKey = null,
+        string $backoffStrategy = 'linear',
     ): int
     {
-        return Queue::push($job, $payload, $delaySeconds, $maxAttempts, $queue, $backoffSeconds, $timeoutSeconds);
+        return Queue::push(
+            $job,
+            $payload,
+            $delaySeconds,
+            $maxAttempts,
+            $queue,
+            $backoffSeconds,
+            $timeoutSeconds,
+            $uniqueKey,
+            $backoffStrategy,
+        );
+    }
+}
+
+if (!function_exists('queue_push_unique')) {
+    /** @param class-string<\SedoPHP\Queue\JobInterface> $job @param array<string,mixed> $payload */
+    function queue_push_unique(
+        string $uniqueKey,
+        string $job,
+        array $payload = [],
+        int $delaySeconds = 0,
+        int $maxAttempts = 3,
+        string $queue = 'default',
+        int $backoffSeconds = 30,
+        int $timeoutSeconds = 60,
+        string $backoffStrategy = 'linear',
+    ): int
+    {
+        return Queue::pushUnique(
+            $uniqueKey,
+            $job,
+            $payload,
+            $delaySeconds,
+            $maxAttempts,
+            $queue,
+            $backoffSeconds,
+            $timeoutSeconds,
+            $backoffStrategy,
+        );
     }
 }
 
