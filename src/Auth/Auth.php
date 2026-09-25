@@ -26,7 +26,7 @@ final class Auth
 
     public static function attempt(string $identity, string $password): bool
     {
-        $maxAttempts = max(0, (int) (self::$config['login_max_attempts'] ?? 5));
+        $maxAttempts = max(0, (int) (self::$config['login_max_attempts'] ?? 0));
         $decaySeconds = max(1, (int) (self::$config['login_decay_seconds'] ?? 60));
         $throttleKey = self::loginThrottleKey($identity);
 
