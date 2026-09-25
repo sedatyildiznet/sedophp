@@ -21,6 +21,14 @@
 - added schema helpers for soft deletes, column renames, index removal and foreign keys
 - enabled SQLite foreign-key enforcement by default with an explicit configuration opt-out
 
+### Testing and test data
+
+- added plain-PHP seeders with make:seeder and db:seed CLI commands
+- added dependency-free model factories and a make:factory generator
+- added direct Router-based HTTP testing with status, header, body, JSON-path and redirect assertions
+- added database row presence and absence assertions
+- registered seeder and factory namespaces in both Composer and the fallback autoloader
+
 ### Documentation and project metadata
 
 - added Zenodo DOI badge and DOI citation metadata
