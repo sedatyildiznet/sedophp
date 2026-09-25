@@ -33,7 +33,7 @@ if ($testDriver === 'mysql' && in_array('mysql', PDO::getAvailableDrivers(), tru
 
 $pdo = Database::pdo();
 
-foreach (['m1_role_user', 'm1_posts', 'm1_profiles', 'm1_roles', 'm1_users'] as $table) {
+foreach (['m1_role_user', 'm1_posts', 'm1_profiles', 'm1_roles', 'm1_settings', 'm1_users'] as $table) {
     $pdo->exec('DROP TABLE IF EXISTS ' . $table);
 }
 
@@ -62,6 +62,11 @@ if ($testDriver === 'mysql') {
         role_id BIGINT UNSIGNED NOT NULL,
         level VARCHAR(32) NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    $pdo->exec('CREATE TABLE m1_settings (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        setting_key VARCHAR(191) NOT NULL UNIQUE,
+        setting_value VARCHAR(255) NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
 } else {
     $pdo->exec('CREATE TABLE m1_users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,6 +91,11 @@ if ($testDriver === 'mysql') {
         user_id INTEGER NOT NULL,
         role_id INTEGER NOT NULL,
         level TEXT NULL
+    )');
+    $pdo->exec('CREATE TABLE m1_settings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        setting_key TEXT NOT NULL UNIQUE,
+        setting_value TEXT NOT NULL
     )');
 }
 
@@ -161,6 +171,91 @@ Database::table('m1_role_user')->insert([
     'role_id' => $editor->getKey(),
     'level' => 'member',
 ]);
+
+$test('query builder supports upsert and convenience writes', static function () use ($expect): void {
+    $table = Database::table('m1_settings');
+
+    $expect($table->upsert([
+        ['setting_key' => 'mode', 'setting_value' => 'one'],
+    ], 'setting_key', ['setting_value']) >= 1);
+
+    $table->upsert([
+        ['setting_key' => 'mode', 'setting_value' => 'two'],
+        ['setting_key' => 'theme', 'setting_value' => 'dark'],
+    ], 'setting_key', ['setting_value']);
+
+    $expect(Database::table('m1_settings')->where('setting_key', 'mode')->value('setting_value') === 'two');
+    $expect(Database::table('m1_settings')->where('setting_key', 'theme')->value('setting_value') === 'dark');
+
+    $expect(Database::table('m1_settings')->updateOrInsert(
+        ['setting_key' => 'theme'],
+        ['setting_value' => 'light']
+    ));
+    $expect(Database::table('m1_settings')->where('setting_key', 'theme')->value('setting_value') === 'light');
+
+    $created = Database::table('m1_settings')->firstOrCreate(
+        ['setting_key' => 'locale'],
+        ['setting_value' => 'tr']
+    );
+    $expect(($created['setting_value'] ?? null) === 'tr');
+
+    $new = Database::table('m1_settings')->firstOrNew(
+        ['setting_key' => 'timezone'],
+        ['setting_value' => 'Europe/Istanbul']
+    );
+    $expect(($new['setting_value'] ?? null) === 'Europe/Istanbul');
+    $expect(!Database::table('m1_settings')->where('setting_key', 'timezone')->exists());
+});
+
+$test('query builder supports chunk, cursor and EXISTS subqueries', static function () use ($expect): void {
+    $chunks = 0;
+    $processed = Database::table('m1_roles')->orderBy('id')->chunk(1, static function (array $rows) use (&$chunks): void {
+        $chunks++;
+    });
+
+    $expect($processed === 2);
+    $expect($chunks === 2);
+
+    $cursorRows = iterator_to_array(Database::table('m1_roles')->orderBy('id')->cursor(1), false);
+    $expect(count($cursorRows) === 2);
+
+    $subquery = Database::table('m1_posts')
+        ->select('id')
+        ->whereColumn('m1_posts.user_id', '=', 'm1_users.id')
+        ->where('title', 'Visible');
+
+    $expect(Database::table('m1_users')->whereExists($subquery)->count() === 1);
+    $expect(Database::table('m1_users')->whereNotExists($subquery)->count() === 0);
+});
+
+$test('nested transactions use savepoints without rolling back the outer transaction', static function () use ($expect): void {
+    Database::transaction(static function (): void {
+        Database::table('m1_settings')->insert([
+            'setting_key' => 'outer_before',
+            'setting_value' => 'kept',
+        ]);
+
+        try {
+            Database::transaction(static function (): void {
+                Database::table('m1_settings')->insert([
+                    'setting_key' => 'inner_rollback',
+                    'setting_value' => 'removed',
+                ]);
+                throw new RuntimeException('rollback nested transaction');
+            });
+        } catch (RuntimeException) {
+        }
+
+        Database::table('m1_settings')->insert([
+            'setting_key' => 'outer_after',
+            'setting_value' => 'kept',
+        ]);
+    });
+
+    $expect(Database::table('m1_settings')->where('setting_key', 'outer_before')->exists());
+    $expect(Database::table('m1_settings')->where('setting_key', 'outer_after')->exists());
+    $expect(!Database::table('m1_settings')->where('setting_key', 'inner_rollback')->exists());
+});
 
 $test('hasOne returns one related model', static function () use ($expect, $user, $profile): void {
     $related = $user->profile()->first();
