@@ -21,6 +21,12 @@ final class Config
         }
     }
 
+    /** @return array<string,array<string,mixed>> */
+    public static function all(): array
+    {
+        return self::$items;
+    }
+
     public static function get(string $key, mixed $default = null): mixed
     {
         $segments = explode('.', $key);
