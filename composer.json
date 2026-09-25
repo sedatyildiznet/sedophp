@@ -14,7 +14,8 @@
   ],
   "require": {
     "php": ">=8.3",
-    "ext-pdo": "*"
+    "ext-pdo": "*",
+    "ext-fileinfo": "*"
   },
   "autoload": {
     "psr-4": {
@@ -29,7 +30,12 @@
     "sedo"
   ],
   "scripts": {
-    "test": "@php tests/run.php",
+    "test": [
+      "@php tests/run.php",
+      "@php tests/features_020.php",
+      "@php tests/release_020.php",
+      "@php tests/concurrency.php"
+    ],
     "lint": "@php tools/lint.php"
   },
   "minimum-stability": "stable",

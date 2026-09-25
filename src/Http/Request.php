@@ -8,7 +8,36 @@ use JsonException;
 
 final class Request
 {
-    /** @param array<string, mixed> $query @param array<string, mixed> $body @param array<string, mixed> $files @param array<string, mixed> $server @param array<string, string> $headers */
+    /** @var list<string> */
+    private static array $trustedProxies = [];
+    /** @var list<string> */
+    private static array $trustedHeaders = ['cf-connecting-ip', 'x-forwarded-for'];
+
+    /** @param array<string,mixed> $config */
+    public static function configure(array $config): void
+    {
+        $proxies = $config['trusted_proxies'] ?? [];
+        self::$trustedProxies = is_array($proxies)
+            ? array_values(array_filter(array_map('strval', $proxies)))
+            : [];
+
+        $headers = $config['trusted_headers'] ?? self::$trustedHeaders;
+        if (is_array($headers)) {
+            self::$trustedHeaders = array_values(array_map(
+                static fn (mixed $header): string => strtolower((string) $header),
+                $headers
+            ));
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $query
+     * @param array<string, mixed> $body
+     * @param array<string, mixed> $files
+     * @param array<string, mixed> $server
+     * @param array<string, string> $headers
+     * @param array<string, mixed> $attributes
+     */
     public function __construct(
         private string $method,
         private string $path,
@@ -17,6 +46,7 @@ final class Request
         private array $files = [],
         private array $server = [],
         private array $headers = [],
+        private array $attributes = [],
     ) {
         $this->method = strtoupper($this->method);
         $this->path = self::normalizePath($this->path);
@@ -28,7 +58,6 @@ final class Request
         $headers = self::captureHeaders($_SERVER);
         $contentType = strtolower($headers['content-type'] ?? '');
         $body = $_POST;
-        $raw = '';
 
         if (str_contains($contentType, 'application/json')) {
             $raw = (string) file_get_contents('php://input');
@@ -72,7 +101,13 @@ final class Request
     }
 
     /** @param array<string, mixed> $input @param array<string, string> $headers */
-    public static function fake(string $method, string $uri, array $input = [], array $headers = []): self
+    public static function fake(
+        string $method,
+        string $uri,
+        array $input = [],
+        array $headers = [],
+        array $server = [],
+    ): self
     {
         $parts = parse_url($uri);
         $query = [];
@@ -96,18 +131,11 @@ final class Request
             $normalizedHeaders[strtolower((string) $key)] = (string) $value;
         }
 
-        return new self($method, (string) ($parts['path'] ?? '/'), $query, $body, [], [], $normalizedHeaders);
+        return new self($method, (string) ($parts['path'] ?? '/'), $query, $body, [], $server, $normalizedHeaders);
     }
 
-    public function method(): string
-    {
-        return $this->method;
-    }
-
-    public function path(): string
-    {
-        return $this->path;
-    }
+    public function method(): string { return $this->method; }
+    public function path(): string { return $this->path; }
 
     public function input(?string $key = null, mixed $default = null): mixed
     {
@@ -147,6 +175,16 @@ final class Request
         return $this->headers[strtolower($key)] ?? $default;
     }
 
+    public function attribute(string $key, mixed $default = null): mixed
+    {
+        return $this->attributes[$key] ?? $default;
+    }
+
+    public function setAttribute(string $key, mixed $value): void
+    {
+        $this->attributes[$key] = $value;
+    }
+
     public function isJson(): bool
     {
         return str_contains(strtolower((string) $this->header('content-type', '')), 'application/json');
@@ -160,7 +198,75 @@ final class Request
 
     public function ip(): ?string
     {
-        return isset($this->server['REMOTE_ADDR']) ? (string) $this->server['REMOTE_ADDR'] : null;
+        $remote = isset($this->server['REMOTE_ADDR']) ? trim((string) $this->server['REMOTE_ADDR']) : '';
+        if (!filter_var($remote, FILTER_VALIDATE_IP)) {
+            return null;
+        }
+
+        if (!self::isTrustedProxy($remote)) {
+            return $remote;
+        }
+
+        foreach (self::$trustedHeaders as $header) {
+            $value = trim((string) $this->header($header, ''));
+            if ($value === '') {
+                continue;
+            }
+
+            $candidates = array_map('trim', explode(',', $value));
+            if ($header === 'x-forwarded-for') {
+                $candidates = array_reverse($candidates);
+            }
+            foreach ($candidates as $candidate) {
+                if (filter_var($candidate, FILTER_VALIDATE_IP) && !self::isTrustedProxy($candidate)) {
+                    return $candidate;
+                }
+            }
+        }
+
+        return $remote;
+    }
+
+    private static function isTrustedProxy(string $ip): bool
+    {
+        foreach (self::$trustedProxies as $proxy) {
+            if ($proxy === $ip || self::ipInCidr($ip, $proxy)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function ipInCidr(string $ip, string $cidr): bool
+    {
+        if (!str_contains($cidr, '/')) {
+            return false;
+        }
+
+        [$network, $prefix] = explode('/', $cidr, 2);
+        $ipBinary = @inet_pton($ip);
+        $networkBinary = @inet_pton($network);
+        if ($ipBinary === false || $networkBinary === false || strlen($ipBinary) !== strlen($networkBinary)) {
+            return false;
+        }
+
+        $bits = (int) $prefix;
+        $maxBits = strlen($ipBinary) * 8;
+        if ((string) $bits !== $prefix || $bits < 0 || $bits > $maxBits) {
+            return false;
+        }
+
+        $bytes = intdiv($bits, 8);
+        $remainder = $bits % 8;
+        if ($bytes > 0 && substr($ipBinary, 0, $bytes) !== substr($networkBinary, 0, $bytes)) {
+            return false;
+        }
+        if ($remainder === 0) {
+            return true;
+        }
+
+        $mask = (0xFF << (8 - $remainder)) & 0xFF;
+        return (ord($ipBinary[$bytes]) & $mask) === (ord($networkBinary[$bytes]) & $mask);
     }
 
     /** @param array<string, mixed> $server @return array<string, string> */

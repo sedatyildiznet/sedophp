@@ -4,7 +4,7 @@
 
 SedoPHP is a small PHP 8.3+ framework designed around readable PHP, shared hosting, predictable behavior and almost no setup. It deliberately avoids a large dependency tree, template-language lock-in and hidden application magic.
 
-> Status: **0.1.0 stable**
+> Status: **0.2.0 stable**
 
 ## What makes it different?
 
@@ -15,9 +15,10 @@ SedoPHP is a small PHP 8.3+ framework designed around readable PHP, shared hosti
 - Plain PHP views
 - Small functional API: `get()`, `input()`, `db()`, `view()`, `auth()`...
 - PDO prepared statements
-- Lightweight models with explicit mass-assignment fields
-- Sessions, CSRF, validation, uploads and simple authentication included
-- JSON requests/responses for APIs
+- Lightweight models with relations, casts, timestamps and explicit mass-assignment fields
+- Nested/wildcard validation, sessions, CSRF, uploads and authentication included
+- Route groups, global middleware, CORS and security headers
+- JSON requests/responses, API tokens and JWT authentication
 - CLI is useful, never mandatory
 - PSR-4 project layout and PSR-12-oriented source style
 - Automated tests on PHP 8.3, 8.4 and 8.5 plus MariaDB 11
@@ -51,9 +52,13 @@ get('/', function () {
 get('/users/{id}', 'UserController@show');
 
 post('/login', 'AuthController@login')->middleware('csrf');
+
+route_group(['prefix' => '/api/v1', 'middleware' => 'token'], function () {
+    get('/me', 'ApiController@me');
+});
 ```
 
-The router handles route parameters, HEAD, OPTIONS, 404 and 405 responses. Duplicate method/path registrations are rejected.
+The router handles route parameters, nested route groups, route/global middleware, HEAD, OPTIONS, 404 and 405 responses. Duplicate method/path registrations are rejected.
 
 ## Input
 
@@ -84,7 +89,7 @@ $id = db('users')->insert([
 ]);
 ```
 
-`where('column', null)` becomes `IS NULL` automatically. Updates and deletes require a `where()` clause.
+`where('column', null)` becomes `IS NULL` automatically. Joins, grouping, HAVING and pagination are supported. Updates and deletes require a `where()` clause.
 
 ## Models
 
@@ -97,11 +102,20 @@ final class User extends Model
         'name',
         'email',
         'password',
+        'settings',
+        'active',
     ];
+
+    protected array $casts = [
+        'settings' => 'array',
+        'active' => 'boolean',
+    ];
+
+    protected bool $timestamps = true;
 }
 ```
 
-Models refuse mass assignment until `$fillable` is explicitly defined.
+Models refuse mass assignment until `$fillable` is explicitly defined. Casts and automatic timestamps are opt-in, and `hasMany` / `belongsTo` relations support eager loading.
 
 ## Validation
 
@@ -110,6 +124,8 @@ $errors = validate(input_all(), [
     'email' => 'required|email|unique:users,email',
     'password' => 'required|min:8|confirmed',
     'age' => 'nullable|integer|min:18',
+    'profile.website' => 'nullable|url',
+    'items.*.name' => 'required|string',
 ]);
 ```
 
@@ -176,7 +192,7 @@ php sedo migrate
 php sedo migrate:rollback
 ```
 
-Migrations use plain PDO and SQL. SedoPHP avoids wrapping MySQL/MariaDB schema DDL in unsafe fake transactions.
+New migrations use the portable `Schema` / `Blueprint` builder, while existing plain-PDO migrations remain supported. SedoPHP avoids wrapping MySQL/MariaDB schema DDL in unsafe fake transactions.
 
 ## Shared hosting
 
@@ -198,6 +214,11 @@ php sedo make:model User
 php sedo make:migration create_posts
 php sedo migrate
 php sedo migrate:rollback
+php sedo queue:work 20 default
+php sedo queue:failed
+php sedo queue:retry all
+php sedo queue:flush
+php sedo schedule:run
 php sedo route:list
 php sedo doctor
 php sedo version
@@ -228,6 +249,12 @@ GitHub Actions currently checks:
 - Composer metadata
 - Composer-free autoloading
 - shared-hosting protection rules
+- route groups, CORS and security middleware
+- nested/wildcard validation
+- model casts and timestamps
+- joins, grouping, HAVING and grouped pagination
+- schema builder compatibility across SQLite and MariaDB
+- queue recovery/failed jobs, scheduler, JWT/API tokens and SMTP
 - edge cases for relative SQLite paths, same-origin redirects and required validation
 
 ## Documentation
@@ -250,10 +277,19 @@ GitHub Actions currently checks:
 
 ## Stability
 
-SedoPHP 0.1.0 is the first stable release of the current public API. Patch releases may fix bugs and security issues without intentionally breaking documented 0.1 APIs.
+SedoPHP 0.2.0 is the current stable release. It keeps the dependency-light, shared-hosting-first 0.1 API while adding production-ready routing, database, validation, queue, scheduler and API features. Patch releases may fix bugs and security issues without intentionally breaking documented 0.2 APIs.
 
 Provider-specific Apache, LiteSpeed and cPanel configurations can still differ. Use `php sedo doctor` and the shared-hosting verification checklist when deploying to a new provider.
 
 ## License
 
 MIT.
+
+
+## 0.2 highlights
+
+SedoPHP 0.2 adds route groups and global middleware, CORS/security headers, nested validation, model relations/casts/timestamps, joins and grouped queries, a portable schema builder, API-token/JWT authentication, SMTP mail, a recoverable database queue and a cron-friendly scheduler.
+
+These features remain dependency-light: Redis, Node.js and permanent worker daemons are not required. Queue workers and scheduled tasks can be invoked from cPanel Cron.
+
+See [Advanced features](docs/advanced-features.md).

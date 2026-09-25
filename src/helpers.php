@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
+use SedoPHP\Auth\ApiToken;
 use SedoPHP\Auth\Auth;
+use SedoPHP\Cache\Cache;
 use SedoPHP\Core\Application;
 use SedoPHP\Core\Config;
 use SedoPHP\Core\Env;
@@ -12,8 +14,12 @@ use SedoPHP\Database\QueryBuilder;
 use SedoPHP\Http\Request;
 use SedoPHP\Http\Response;
 use SedoPHP\Http\UploadedFile;
+use SedoPHP\Mail\Mailer;
+use SedoPHP\Queue\Queue;
 use SedoPHP\Routing\Route;
 use SedoPHP\Security\Csrf;
+use SedoPHP\Security\Jwt;
+use SedoPHP\Security\RateLimiter;
 use SedoPHP\Session\Session;
 use SedoPHP\Validation\Validator;
 use SedoPHP\View\View;
@@ -65,6 +71,14 @@ if (!function_exists('patch')) {
 
 if (!function_exists('delete')) {
     function delete(string $pattern, mixed $action): Route { return app()->router()->delete($pattern, $action); }
+}
+
+if (!function_exists('route_group')) {
+    /** @param array{prefix?:string,middleware?:string|list<string>} $attributes */
+    function route_group(array $attributes, callable $callback): void
+    {
+        app()->router()->group($attributes, $callback);
+    }
 }
 
 if (!function_exists('view')) {
@@ -210,6 +224,128 @@ if (!function_exists('user')) {
         }
         return $current[$key] ?? $default;
     }
+}
+
+if (!function_exists('cache_get')) {
+    function cache_get(string $key, mixed $default = null): mixed { return Cache::get($key, $default); }
+}
+
+if (!function_exists('cache_put')) {
+    function cache_put(string $key, mixed $value, ?int $ttlSeconds = null): void { Cache::put($key, $value, $ttlSeconds); }
+}
+
+if (!function_exists('cache_remember')) {
+    function cache_remember(string $key, int $ttlSeconds, callable $callback): mixed
+    {
+        return Cache::remember($key, $ttlSeconds, $callback);
+    }
+}
+
+if (!function_exists('cache_forget')) {
+    function cache_forget(string $key): void { Cache::forget($key); }
+}
+
+if (!function_exists('jwt_encode')) {
+    /** @param array<string,mixed> $claims */
+    function jwt_encode(array $claims, int $ttlSeconds = 3600): string { return Jwt::encode($claims, $ttlSeconds); }
+}
+
+if (!function_exists('jwt_decode')) {
+    /** @return array<string,mixed>|null */
+    function jwt_decode(string $token): ?array { return Jwt::decode($token); }
+}
+
+if (!function_exists('jwt_pair')) {
+    /** @param array<string,mixed> $claims @return array{access_token:string,refresh_token:string,token_type:string,expires_in:int} */
+    function jwt_pair(array $claims, int $accessTtl = 3600, int $refreshTtl = 2592000): array
+    {
+        return Jwt::pair($claims, $accessTtl, $refreshTtl);
+    }
+}
+
+if (!function_exists('jwt_refresh')) {
+    function jwt_refresh(string $token, int $accessTtl = 3600, int $refreshTtl = 2592000): ?array
+    {
+        return Jwt::refresh($token, $accessTtl, $refreshTtl);
+    }
+}
+
+if (!function_exists('jwt_revoke')) {
+    function jwt_revoke(string $token): bool { return Jwt::revoke($token); }
+}
+
+if (!function_exists('jwt_claim')) {
+    function jwt_claim(string $key, mixed $default = null): mixed
+    {
+        $claims = request()->attribute('jwt', []);
+        return is_array($claims) ? ($claims[$key] ?? $default) : $default;
+    }
+}
+
+if (!function_exists('api_token_issue')) {
+    /** @param list<string> $abilities */
+    function api_token_issue(
+        int|string $userId,
+        string $name = 'default',
+        array $abilities = ['*'],
+        ?DateTimeInterface $expiresAt = null,
+    ): string {
+        return ApiToken::issue($userId, $name, $abilities, $expiresAt);
+    }
+}
+
+if (!function_exists('api_token_revoke')) {
+    function api_token_revoke(string $token): bool { return ApiToken::revoke($token); }
+}
+
+if (!function_exists('token_can')) {
+    function token_can(string $ability): bool
+    {
+        $token = request()->attribute('api_token');
+        return is_array($token) && ApiToken::can($token, $ability);
+    }
+}
+
+if (!function_exists('rate_limit')) {
+    /** @return array{allowed:bool,remaining:int,retry_after:int,attempts:int} */
+    function rate_limit(string $key, int $maxAttempts = 60, int $decaySeconds = 60): array
+    {
+        return RateLimiter::hit($key, $maxAttempts, $decaySeconds);
+    }
+}
+
+if (!function_exists('mail_send')) {
+    /** @param string|list<string> $to @param array<string,string> $headers @param array<string,mixed> $options */
+    function mail_send(
+        string|array $to,
+        string $subject,
+        string $html,
+        ?string $text = null,
+        array $headers = [],
+        array $options = [],
+    ): bool {
+        return Mailer::send($to, $subject, $html, $text, $headers, $options);
+    }
+}
+
+if (!function_exists('queue_push')) {
+    /** @param class-string<\SedoPHP\Queue\JobInterface> $job @param array<string,mixed> $payload */
+    function queue_push(
+        string $job,
+        array $payload = [],
+        int $delaySeconds = 0,
+        int $maxAttempts = 3,
+        string $queue = 'default',
+        int $backoffSeconds = 30,
+        int $timeoutSeconds = 60,
+    ): int
+    {
+        return Queue::push($job, $payload, $delaySeconds, $maxAttempts, $queue, $backoffSeconds, $timeoutSeconds);
+    }
+}
+
+if (!function_exists('queue_work')) {
+    function queue_work(int $limit = 10, string $queue = 'default'): int { return Queue::work($limit, $queue); }
 }
 
 if (!function_exists('log_info')) {

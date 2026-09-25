@@ -16,29 +16,9 @@ use SedoPHP\Session\Session;
 use SedoPHP\Validation\Validator;
 use SedoPHP\View\View;
 
-require dirname(__DIR__) . '/bootstrap/autoload.php';
+[$suite, $test, $expect] = require __DIR__ . '/Support/bootstrap.php';
 
 ob_start();
-
-$passed = 0;
-$failed = 0;
-
-$test = static function (string $name, callable $callback) use (&$passed, &$failed): void {
-    try {
-        $callback();
-        $passed++;
-        echo "[PASS] {$name}\n";
-    } catch (Throwable $e) {
-        $failed++;
-        echo "[FAIL] {$name}: {$e->getMessage()}\n";
-    }
-};
-
-$expect = static function (bool $condition, string $message = 'Expectation failed.'): void {
-    if (!$condition) {
-        throw new RuntimeException($message);
-    }
-};
 
 Session::configure(['name' => 'sedophp_test_' . getmypid(), 'secure' => false, 'same_site' => 'Lax']);
 Session::start();
@@ -250,9 +230,12 @@ if ($hasDatabase) {
     $runner = new MigrationRunner(dirname(__DIR__) . '/database/migrations');
 
     $test('Migrations run, rollback and rerun on the configured database', static function () use ($expect, $runner): void {
-        $expect($runner->migrate() === 1);
+        $migrationCount = count(glob(dirname(__DIR__) . '/database/migrations/*.php') ?: []);
+
+        $expect($migrationCount >= 1);
+        $expect($runner->migrate() === $migrationCount);
         $expect(Database::table('users')->count() === 0);
-        $expect($runner->rollback() === 1);
+        $expect($runner->rollback() === $migrationCount);
 
         $missing = false;
         try {
@@ -262,7 +245,7 @@ if ($hasDatabase) {
         }
         $expect($missing);
 
-        $expect($runner->migrate() === 1);
+        $expect($runner->migrate() === $migrationCount);
     });
 
     $test('Query builder insert, NULL, IN, value, pluck and exists', static function () use ($expect): void {
@@ -401,6 +384,6 @@ if ($hasDatabase) {
     echo "[SKIP] Database tests: requested PDO test driver is unavailable.\n";
 }
 
-echo "\n{$passed} passed, {$failed} failed.\n";
+$code = $suite->finish();
 ob_end_flush();
-exit($failed === 0 ? 0 : 1);
+exit($code);

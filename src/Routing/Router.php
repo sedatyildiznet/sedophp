@@ -8,13 +8,21 @@ use RuntimeException;
 use SedoPHP\Http\Request;
 use SedoPHP\Http\Response;
 use SedoPHP\Middleware\MiddlewareInterface;
+use SedoPHP\Middleware\ParameterizedMiddlewareInterface;
 
 final class Router
 {
     /** @var list<Route> */
     private array $routes = [];
-    /** @var array<string, class-string<MiddlewareInterface>|callable> */
+
+    /** @var array<string, class-string<MiddlewareInterface>|class-string<ParameterizedMiddlewareInterface>|callable> */
     private array $aliases = [];
+
+    /** @var list<string> */
+    private array $globalMiddleware = [];
+
+    /** @var list<array{prefix:string,middleware:list<string>}> */
+    private array $groups = [];
 
     public function get(string $pattern, mixed $action): Route { return $this->add('GET', $pattern, $action); }
     public function post(string $pattern, mixed $action): Route { return $this->add('POST', $pattern, $action); }
@@ -25,7 +33,8 @@ final class Router
     public function add(string $method, string $pattern, mixed $action): Route
     {
         $method = strtoupper($method);
-        $pattern = self::normalize($pattern);
+        [$prefix, $middleware] = $this->groupContext();
+        $pattern = self::combine($prefix, $pattern);
 
         foreach ($this->routes as $existing) {
             if ($existing->method === $method && $existing->pattern === $pattern) {
@@ -34,6 +43,10 @@ final class Router
         }
 
         $route = new Route($method, $pattern, $action);
+        if ($middleware !== []) {
+            $route->middleware(...$middleware);
+        }
+
         $this->routes[] = $route;
         return $route;
     }
@@ -43,6 +56,39 @@ final class Router
         $this->aliases[$name] = $middleware;
     }
 
+    public function middleware(string ...$names): void
+    {
+        foreach ($names as $name) {
+            if ($name !== '' && !in_array($name, $this->globalMiddleware, true)) {
+                $this->globalMiddleware[] = $name;
+            }
+        }
+    }
+
+    /**
+     * @param array{prefix?:string,middleware?:string|list<string>} $attributes
+     */
+    public function group(array $attributes, callable $callback): void
+    {
+        $prefix = self::normalizePrefix((string) ($attributes['prefix'] ?? ''));
+        $middleware = $attributes['middleware'] ?? [];
+        $middleware = is_string($middleware) ? [$middleware] : array_values($middleware);
+
+        foreach ($middleware as $name) {
+            if (!is_string($name) || $name === '') {
+                throw new RuntimeException('Route group middleware names must be non-empty strings.');
+            }
+        }
+
+        $this->groups[] = ['prefix' => $prefix, 'middleware' => $middleware];
+
+        try {
+            $callback();
+        } finally {
+            array_pop($this->groups);
+        }
+    }
+
     /** @return list<Route> */
     public function routes(): array
     {
@@ -50,6 +96,18 @@ final class Router
     }
 
     public function dispatch(Request $request): Response
+    {
+        $destination = fn (): Response => $this->dispatchRoutes($request);
+
+        foreach (array_reverse($this->globalMiddleware) as $name) {
+            $next = $destination;
+            $destination = fn (): Response => $this->runMiddleware($name, $request, $next);
+        }
+
+        return $destination();
+    }
+
+    private function dispatchRoutes(Request $request): Response
     {
         $originalMethod = $request->method();
 
@@ -73,9 +131,7 @@ final class Router
             }
 
             $destination = fn (): Response => $this->normalizeResponse($this->invoke($route->action, $params));
-            $pipeline = array_reverse($route->middlewareNames());
-
-            foreach ($pipeline as $name) {
+            foreach (array_reverse($route->middlewareNames()) as $name) {
                 $next = $destination;
                 $destination = fn (): Response => $this->runMiddleware($name, $request, $next);
             }
@@ -141,8 +197,13 @@ final class Router
         throw new RuntimeException('Invalid route action. Use a closure, callable, or Controller@method.');
     }
 
-    private function runMiddleware(string $name, Request $request, callable $next): Response
+    private function runMiddleware(string $definition, Request $request, callable $next): Response
     {
+        [$name, $parameterText] = array_pad(explode(':', $definition, 2), 2, null);
+        $parameters = $parameterText === null || trim($parameterText) === ''
+            ? []
+            : array_values(array_map('trim', explode(',', $parameterText)));
+
         if (!array_key_exists($name, $this->aliases)) {
             throw new RuntimeException("Middleware alias not found: {$name}");
         }
@@ -150,6 +211,14 @@ final class Router
         $middleware = $this->aliases[$name];
         if (is_string($middleware)) {
             $middleware = new $middleware();
+        }
+
+        if ($middleware instanceof ParameterizedMiddlewareInterface) {
+            return $middleware->handle($request, $next, $parameters);
+        }
+
+        if ($parameters !== []) {
+            throw new RuntimeException("Middleware does not accept parameters: {$name}");
         }
 
         if ($middleware instanceof MiddlewareInterface) {
@@ -221,6 +290,41 @@ final class Router
             $params[$name] = rawurldecode((string) ($matches[$index] ?? ''));
         }
         return $params;
+    }
+
+    /** @return array{0:string,1:list<string>} */
+    private function groupContext(): array
+    {
+        $prefix = '';
+        $middleware = [];
+
+        foreach ($this->groups as $group) {
+            $prefix = self::combine($prefix, $group['prefix']);
+            array_push($middleware, ...$group['middleware']);
+        }
+
+        return [$prefix, $middleware];
+    }
+
+    private static function combine(string $prefix, string $pattern): string
+    {
+        $prefix = self::normalizePrefix($prefix);
+        $pattern = self::normalize($pattern);
+
+        if ($prefix === '') {
+            return $pattern;
+        }
+
+        return self::normalize($prefix . ($pattern === '/' ? '' : $pattern));
+    }
+
+    private static function normalizePrefix(string $prefix): string
+    {
+        $prefix = trim($prefix);
+        if ($prefix === '' || $prefix === '/') {
+            return '';
+        }
+        return '/' . trim($prefix, '/');
     }
 
     private static function normalize(string $pattern): string
