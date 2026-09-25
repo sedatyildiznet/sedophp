@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 use SedoPHP\Database\Database;
 use SedoPHP\Database\MigrationRunner;
+use SedoPHP\Database\SeederRunner;
 use SedoPHP\Queue\Queue;
 use SedoPHP\Routing\Router;
 use SedoPHP\Scheduling\Schedule;
@@ -78,6 +79,94 @@ PHP;
     echo "Created: {$file}\n";
 };
 
+$writeSeeder = static function (?string $name) use ($app): void {
+    if ($name === null || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name) !== 1) {
+        fwrite(STDERR, "Provide a valid seeder class name.\n");
+        exit(1);
+    }
+
+    $directory = $app->path('database/seeders');
+    if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
+        fwrite(STDERR, "Could not create seeder directory: {$directory}\n");
+        exit(1);
+    }
+
+    $file = $directory . '/' . $name . '.php';
+    if (is_file($file)) {
+        fwrite(STDERR, "Already exists: {$file}\n");
+        exit(1);
+    }
+
+    $content = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace Database\Seeders;
+
+use SedoPHP\Database\Seeder;
+
+final class {$name} extends Seeder
+{
+    public function run(): void
+    {
+        // Seed data with models or db().
+    }
+}
+
+PHP;
+
+    file_put_contents($file, $content);
+    echo "Created: {$file}\n";
+};
+
+$writeFactory = static function (?string $name) use ($app): void {
+    if ($name === null || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name) !== 1) {
+        fwrite(STDERR, "Provide a valid factory class name.\n");
+        exit(1);
+    }
+
+    $directory = $app->path('database/factories');
+    if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
+        fwrite(STDERR, "Could not create factory directory: {$directory}\n");
+        exit(1);
+    }
+
+    $file = $directory . '/' . $name . '.php';
+    if (is_file($file)) {
+        fwrite(STDERR, "Already exists: {$file}\n");
+        exit(1);
+    }
+
+    $model = str_ends_with($name, 'Factory') ? substr($name, 0, -7) : $name;
+    $model = $model !== '' ? $model : 'User';
+
+    $content = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace Database\Factories;
+
+use App\Models\{$model};
+use SedoPHP\Database\ModelFactory;
+
+final class {$name} extends ModelFactory
+{
+    protected string \$model = {$model}::class;
+
+    protected function definition(): array
+    {
+        return [];
+    }
+}
+
+PHP;
+
+    file_put_contents($file, $content);
+    echo "Created: {$file}\n";
+};
+
 $doctor = static function () use ($app): int {
     $checks = [];
 
@@ -144,6 +233,19 @@ switch ($command) {
 
     case 'make:migration':
         $writeMigration($name);
+        break;
+
+    case 'make:seeder':
+        $writeSeeder($name);
+        break;
+
+    case 'make:factory':
+        $writeFactory($name);
+        break;
+
+    case 'db:seed':
+        $count = (new SeederRunner($app->path('database/seeders')))->run($name);
+        echo $count === 0 ? "No seeders found.\n" : "Ran {$count} seeder(s).\n";
         break;
 
     case 'migrate':
@@ -231,6 +333,9 @@ SedoPHP CLI
   php sedo make:controller NameController
   php sedo make:model User
   php sedo make:migration create_posts
+  php sedo make:seeder UserSeeder
+  php sedo make:factory UserFactory
+  php sedo db:seed [SeederName]
   php sedo migrate
   php sedo migrate:rollback
   php sedo queue:work [10] [queue]
