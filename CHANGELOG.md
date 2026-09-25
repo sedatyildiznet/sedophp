@@ -78,6 +78,14 @@
 - added automatic cURL usage with a native PHP stream fallback
 - kept ext-curl optional and disabled automatic redirect following
 
+### Optimization and environment doctor
+
+- retained optional plain-PHP configuration and route metadata optimization caches
+- expanded sedo doctor with PHP, extension, storage, database, security, queue, scheduler and mail checks
+- added PASS/WARN/FAIL/INFO doctor statuses so optional features do not break deployment validation
+- added production warnings for debug mode, insecure HTTPS sessions and query logging
+- kept optimization and terminal access optional for shared-hosting deployments
+
 ### Documentation and project metadata
 
 - added Zenodo DOI badge and DOI citation metadata
