@@ -10,8 +10,7 @@
 
 SedoPHP is a lightweight PHP 8.3+ framework built for **shared hosting, readable code and predictable behavior**. It keeps the familiar parts of plain PHP while providing routing, database tools, validation, authentication, APIs, queues and scheduling without requiring a large runtime dependency stack.
 
-> Current stable release: **0.2.1**  
-> This branch contains the **0.3.0 development line**.
+> Current stable release: **0.3.0**
 
 ## Why SedoPHP?
 
@@ -245,7 +244,7 @@ GitHub Actions currently verifies:
 
 ## Stability
 
-SedoPHP **0.2.1** is the current stable release. Patch releases may contain bug fixes, security fixes and documentation/metadata improvements without intentionally breaking documented 0.2 APIs.
+SedoPHP **0.3.0** is the current stable release. Patch releases may contain bug fixes, security fixes and documentation/metadata improvements without intentionally breaking documented 0.3 APIs.
 
 Provider-specific Apache, LiteSpeed and cPanel behavior can differ. Run `php sedo doctor` when terminal access is available and use the deployment checklist on new hosting environments.
 
@@ -261,11 +260,9 @@ Small, focused and readable pull requests are welcome. Read [CONTRIBUTING.md](CO
 
 ## Citation
 
-SedoPHP 0.2.1 is archived on Zenodo.
+Citation metadata for SedoPHP 0.3.0 is available through [CITATION.cff](CITATION.cff) and GitHub's **Cite this repository** interface.
 
-**DOI:** [10.5281/zenodo.22766421](https://doi.org/10.5281/zenodo.22766421)
-
-Citation metadata is available through [CITATION.cff](CITATION.cff) and GitHub's **Cite this repository** interface.
+The existing Zenodo archive for SedoPHP 0.2.1 remains available at DOI **10.5281/zenodo.22766421**. The 0.3.0 archive metadata should be updated after the GitHub release is ingested by Zenodo.
 
 Author: **Sedat Yıldız** — [ORCID 0009-0002-5777-1669](https://orcid.org/0009-0002-5777-1669)
 
