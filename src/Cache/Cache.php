@@ -101,6 +101,56 @@ final class Cache
         }
     }
 
+    public static function pull(string $key, mixed $default = null): mixed
+    {
+        self::ensureDirectory();
+        $file = self::file($key);
+
+        if (!is_file($file)) {
+            return $default;
+        }
+
+        $handle = @fopen($file, 'c+');
+        if ($handle === false) {
+            return $default;
+        }
+
+        $value = $default;
+
+        try {
+            if (!flock($handle, LOCK_EX)) {
+                throw new RuntimeException('Unable to lock cache file.');
+            }
+
+            rewind($handle);
+            $raw = stream_get_contents($handle);
+            $payload = is_string($raw) && $raw !== ''
+                ? @unserialize($raw, ['allowed_classes' => false])
+                : null;
+
+            if (
+                is_array($payload)
+                && array_key_exists('expires_at', $payload)
+                && array_key_exists('value', $payload)
+            ) {
+                $expiresAt = (int) $payload['expires_at'];
+                if ($expiresAt === 0 || $expiresAt > time()) {
+                    $value = $payload['value'];
+                }
+            }
+
+            rewind($handle);
+            ftruncate($handle, 0);
+            fflush($handle);
+            flock($handle, LOCK_UN);
+        } finally {
+            fclose($handle);
+        }
+
+        @unlink($file);
+        return $value;
+    }
+
     public static function clear(): int
     {
         if (!is_dir(self::$directory)) {
