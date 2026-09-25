@@ -59,6 +59,16 @@
 - query diagnostics record SQL placeholders and binding counts without logging binding values
 - kept database diagnostics disabled by default for low production overhead
 
+### Cache, queue and scheduler infrastructure
+
+- added a cache driver contract with the dependency-free file driver as the default
+- added a queue driver contract with the database driver as the default
+- added unique queued jobs with database-level uniqueness protection
+- added opt-in exponential retry backoff while preserving linear backoff as the default
+- added stable scheduler task names and before/after/onSuccess/onFailure lifecycle hooks
+- added scheduler execution result and duration logging
+- kept cron-based one-shot queue and scheduler execution fully supported
+
 ### Documentation and project metadata
 
 - added Zenodo DOI badge and DOI citation metadata
