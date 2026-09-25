@@ -902,9 +902,21 @@ final class QueryBuilder
     /** @param list<mixed> $bindings */
     private function execute(string $sql, array $bindings): PDOStatement
     {
-        $statement = $this->pdo->prepare($sql);
-        $statement->execute($bindings);
-        return $statement;
+        $startedAt = Database::diagnosticsEnabled() ? hrtime(true) : null;
+
+        try {
+            $statement = $this->pdo->prepare($sql);
+            $statement->execute($bindings);
+            return $statement;
+        } finally {
+            if ($startedAt !== null) {
+                Database::recordQuery(
+                    $sql,
+                    count($bindings),
+                    (hrtime(true) - $startedAt) / 1_000_000
+                );
+            }
+        }
     }
 
     private function quoteSelectable(string $identifier): string
