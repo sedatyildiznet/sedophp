@@ -18,7 +18,16 @@ Middleware:
 post('/account', 'AccountController@save')->middleware('auth', 'csrf');
 ```
 
-Built-in aliases: `auth`, `guest`, `csrf`.
+Named routes:
+
+```php
+get('/users/{id}', 'UserController@show')->name('users.show');
+
+route('users.show', ['id' => 5]);
+signed_route('users.show', ['id' => 5], '+30 minutes');
+```
+
+Built-in aliases include `auth`, `guest`, `csrf` and, in 0.3 development, `signed`.
 
 The router automatically handles HEAD and OPTIONS, returns 405 with an `Allow` header for wrong methods, and rejects duplicate method/path registrations.
 
@@ -115,6 +124,8 @@ For regex patterns containing `|`, pass rules as an array so the pipe is not int
 
 For uploaded files, `min`, `max` and `size` are measured in KiB.
 
+Optional request classes can extend `SedoPHP\Http\FormRequest` and expose `passes()`, `fails()`, `errors()` and `validated()` while keeping the original `validate()` helper available.
+
 ## Uploads
 
 ```php
@@ -175,6 +186,8 @@ user('email')
 ```
 
 `user()` never exposes the configured password column.
+
+0.3 development also includes login throttling, single-use password-reset tokens and email-verification tokens. See [authentication.md](authentication.md).
 
 ## CLI
 
