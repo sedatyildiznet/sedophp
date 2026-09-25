@@ -42,6 +42,27 @@ jobs:
       - name: Benchmark smoke
         if: matrix.php == '8.3'
         run: php tools/benchmark.php --json
+      - name: Release ZIP / Composer-free smoke
+        if: matrix.php == '8.3'
+        run: |
+          git archive --format=zip HEAD -o /tmp/sedophp-release.zip
+          mkdir -p /tmp/sedophp-release
+          unzip -q /tmp/sedophp-release.zip -d /tmp/sedophp-release
+          cd /tmp/sedophp-release
+          test ! -e vendor/autoload.php
+          printf '%s\n' \
+            'APP_ENV=production' \
+            'APP_DEBUG=false' \
+            'APP_KEY=release-smoke-key-012345678901234567890123456789' \
+            'DB_DRIVER=sqlite' \
+            "DB_SQLITE=/tmp/sedophp-release/storage/release.sqlite" \
+            > .env
+          touch storage/release.sqlite
+          php tests/fallback_autoload.php
+          php sedo migrate
+          php sedo db:seed
+          php sedo version
+          php sedo doctor
       - name: CLI and HTTP smoke
         if: matrix.php == '8.3'
         run: |
