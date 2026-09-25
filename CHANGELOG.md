@@ -86,6 +86,14 @@
 - added production warnings for debug mode, insecure HTTPS sessions and query logging
 - kept optimization and terminal access optional for shared-hosting deployments
 
+### Documentation, examples and benchmarks
+
+- added a 0.2 to 0.3 upgrade guide focused on backward-compatible deployment
+- added a complete posts API example covering relations, validation, API tokens, queueing, mail, scheduler and testing
+- added a local benchmark tool for bootstrap, configuration reads, route generation, SQLite reads and model hydration
+- added benchmark smoke execution to the PHP 8.3 CI job without performance thresholds
+- refreshed README and API documentation for the 0.3 development line
+
 ### Documentation and project metadata
 
 - added Zenodo DOI badge and DOI citation metadata
