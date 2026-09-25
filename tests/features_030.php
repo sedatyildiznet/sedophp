@@ -8,7 +8,9 @@ use SedoPHP\Auth\PasswordReset;
 use SedoPHP\Cache\Cache;
 use SedoPHP\Console\ConsoleKernel;
 use SedoPHP\Core\Config;
+use SedoPHP\Core\Logger;
 use SedoPHP\Core\Optimizer;
+use SedoPHP\Core\RequestContext;
 use SedoPHP\Database\Database;
 use SedoPHP\Database\Model;
 use SedoPHP\Database\ModelFactory;
@@ -19,6 +21,7 @@ use SedoPHP\Database\SeederRunner;
 use SedoPHP\Http\FormRequest;
 use SedoPHP\Http\Request;
 use SedoPHP\Http\Response;
+use SedoPHP\Middleware\RequestIdMiddleware;
 use SedoPHP\Middleware\SignedUrlMiddleware;
 use SedoPHP\Routing\Router;
 use SedoPHP\Security\SignedUrl;
@@ -644,6 +647,126 @@ $test('forceDelete permanently removes a soft-deletable model', static function 
     $expect($temporary->delete());
     $expect($temporary->forceDelete());
     $expect(M1User::withTrashed()->where('id', $id)->first() === null);
+});
+
+$test('request ID middleware correlates requests and responses', static function () use ($expect): void {
+    RequestContext::reset();
+
+    $router = new Router();
+    $router->alias('request_id', RequestIdMiddleware::class);
+    $router->middleware('request_id');
+    $router->get('/request-id', static fn (): Response => Response::json(['ok' => true]));
+
+    $request = Request::fake('GET', '/request-id', [], [
+        'X-Request-Id' => 'client-request-123',
+    ]);
+    $response = $router->dispatch($request);
+
+    $expect($response->status() === 200);
+    $expect(($response->headers()['X-Request-Id'] ?? null) === 'client-request-123');
+    $expect($request->attribute('request_id') === 'client-request-123');
+    $expect(RequestContext::id() === 'client-request-123');
+
+    RequestContext::reset();
+});
+
+$test('structured logger redacts sensitive context and includes request IDs', static function () use ($expect): void {
+    $file = sys_get_temp_dir() . '/sedophp_030_log_' . getmypid() . '.log';
+    @unlink($file);
+
+    Logger::configure([
+        'path' => $file,
+        'format' => 'json',
+        'level' => 'debug',
+    ]);
+
+    RequestContext::begin('logging-request-123');
+    Logger::info('Structured log test', [
+        'safe' => 'visible',
+        'password' => 'should-not-appear',
+        'nested' => [
+            'api_token' => 'also-secret',
+        ],
+    ]);
+
+    $line = trim((string) file_get_contents($file));
+    $payload = json_decode($line, true, 512, JSON_THROW_ON_ERROR);
+
+    $expect(($payload['level'] ?? null) === 'info');
+    $expect(($payload['message'] ?? null) === 'Structured log test');
+    $expect(($payload['context']['safe'] ?? null) === 'visible');
+    $expect(($payload['context']['password'] ?? null) === '[REDACTED]');
+    $expect(($payload['context']['nested']['api_token'] ?? null) === '[REDACTED]');
+    $expect(($payload['context']['request_id'] ?? null) === 'logging-request-123');
+    $expect(!str_contains($line, 'should-not-appear'));
+    $expect(!str_contains($line, 'also-secret'));
+
+    RequestContext::reset();
+    @unlink($file);
+});
+
+$test('query diagnostics log SQL metadata without binding values', static function () use ($expect, $testDriver): void {
+    $file = sys_get_temp_dir() . '/sedophp_030_queries_' . getmypid() . '.log';
+    @unlink($file);
+
+    Logger::configure([
+        'path' => $file,
+        'format' => 'json',
+        'level' => 'info',
+    ]);
+
+    if ($testDriver === 'mysql') {
+        Database::configure([
+            'driver' => 'mysql',
+            'host' => (string) (getenv('TEST_DB_HOST') ?: '127.0.0.1'),
+            'port' => (int) (getenv('TEST_DB_PORT') ?: 3306),
+            'database' => (string) (getenv('TEST_DB_NAME') ?: 'sedophp'),
+            'username' => (string) (getenv('TEST_DB_USER') ?: 'root'),
+            'password' => (string) (getenv('TEST_DB_PASS') ?: ''),
+            'charset' => 'utf8mb4',
+            'log_queries' => true,
+            'slow_query_ms' => 0,
+        ]);
+        Database::pdo()->exec('DROP TABLE IF EXISTS m5_diagnostics');
+        Database::pdo()->exec('CREATE TABLE m5_diagnostics (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            secret_value VARCHAR(255) NOT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    } else {
+        Database::configure([
+            'driver' => 'sqlite',
+            'sqlite' => ':memory:',
+            'log_queries' => true,
+            'slow_query_ms' => 0,
+        ]);
+        Database::pdo()->exec('CREATE TABLE m5_diagnostics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            secret_value TEXT NOT NULL
+        )');
+    }
+
+    Database::table('m5_diagnostics')->insert([
+        'secret_value' => 'binding-secret-value',
+    ]);
+    Database::table('m5_diagnostics')
+        ->where('secret_value', 'binding-secret-value')
+        ->first();
+
+    $lines = array_values(array_filter(file($file, FILE_IGNORE_NEW_LINES) ?: []));
+    $expect(count($lines) >= 2);
+
+    $last = json_decode((string) end($lines), true, 512, JSON_THROW_ON_ERROR);
+    $expect(($last['message'] ?? null) === 'Database query');
+    $expect(($last['context']['binding_count'] ?? null) === 1);
+    $expect(isset($last['context']['duration_ms']));
+    $expect(isset($last['context']['sql']));
+    $expect(!str_contains(implode("\n", $lines), 'binding-secret-value'));
+
+    if ($testDriver === 'mysql') {
+        Database::pdo()->exec('DROP TABLE IF EXISTS m5_diagnostics');
+    }
+
+    @unlink($file);
 });
 
 $test('custom console kernel discovers and runs plain PHP commands', static function () use ($expect): void {
