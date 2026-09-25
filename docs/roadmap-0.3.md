@@ -224,5 +224,5 @@ Feature freeze is now active for `0.3.0-rc.1`.
 - [x] M7 — Events, filesystem and HTTP client.
 - [x] M8 — Optimization and doctor.
 - [x] M9 — Documentation, examples and benchmarks.
-- [ ] Release candidate regression pass.
+- [x] Release candidate regression pass.
 - [ ] Stable 0.3.0 release.
