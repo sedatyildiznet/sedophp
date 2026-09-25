@@ -69,6 +69,15 @@
 - added scheduler execution result and duration logging
 - kept cron-based one-shot queue and scheduler execution fully supported
 
+### Events, filesystem and HTTP
+
+- added a minimal synchronous event dispatcher for object and named events
+- added a local filesystem driver with traversal protection and a replaceable filesystem contract
+- added storage() helper access without introducing cloud SDK dependencies
+- added a small outbound HTTP client with fluent headers, timeouts, bearer auth, form and JSON requests
+- added automatic cURL usage with a native PHP stream fallback
+- kept ext-curl optional and disabled automatic redirect following
+
 ### Documentation and project metadata
 
 - added Zenodo DOI badge and DOI citation metadata
